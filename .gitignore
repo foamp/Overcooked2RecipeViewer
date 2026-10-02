@@ -1,0 +1,22 @@
+# Local build outputs
+*.dll
+*.exe
+*.pdb
+*.mdb
+/bin/
+/obj/
+
+# Generated exports and logs
+/RecipePreviewExports/
+*.log
+
+# Editor and temporary files
+/.vs/
+*.user
+*.suo
+*.tmp
+*.bak
+*.swp
+*~
+.DS_Store
+Thumbs.db
