@@ -1,5 +1,6 @@
-# Overcooked2RecipePreview
-A BepInEx mod for Overcooked! 2 with recipe preview, arrangement and customization features.
+# Overcooked2RecipeViewer
+
+A BepInEx mod for Overcooked! 2 that displays all recipes available in the current level.
 
 ## Overcooked 2 Recipe Preview — 最小验证版
 
