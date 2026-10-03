@@ -2,6 +2,10 @@
 
 A BepInEx mod for **Overcooked! 2** that shows the recipes available in the current level using the game's own recipe cards. Arrange your menu, keep custom layouts, and export a complete recipe sheet as a PNG.
 
+[Download v0.8.3](https://github.com/foamp/Overcooked2RecipeViewer/releases/tag/v0.8.3)
+
+![In-game recipe viewer with custom rows, zoom and export controls](docs/screenshots/recipe-viewer.png)
+
 The viewer changes only the recipe preview. It does not change the game's real orders, order generation, timers or scoring.
 
 ## Features
@@ -26,7 +30,7 @@ Game assemblies and BepInEx binaries are not included in this repository or the 
 ## Installation
 
 1. Install BepInEx 5 for your copy of Overcooked! 2. If necessary, run the game once to let BepInEx create its folders, then close it.
-2. Download `Overcooked2RecipeViewer.dll` from this repository's **Releases** page when a release is available, or [build it from source](#building).
+2. Download `Overcooked2RecipeViewer.dll` from the [v0.8.3 release](https://github.com/foamp/Overcooked2RecipeViewer/releases/tag/v0.8.3), or [build it from source](#building).
 3. Create a folder named `Overcooked2RecipeViewer` inside the game's `BepInEx\plugins` directory.
 4. Place the DLL in that folder:
 
@@ -71,9 +75,18 @@ The toggle shortcut appears under **Overcooked2RecipeViewer** in Configuration M
 
 ## Screenshots
 
-_Screenshots will be added before the first release._
+The in-game viewer is shown at the top of this page. These PNG examples were exported directly from user-arranged recipe boards.
 
-Planned examples: the recipe board, the Preset menu with saved layouts, and a PNG exported from a custom arrangement.
+### Combo meal export
+
+![PNG export showing burger, side and drink combinations](docs/screenshots/exported-combo-meals.png)
+
+<details>
+<summary>View a complete exported recipe sheet</summary>
+
+![Complete PNG export with sushi, burritos, fried dishes, pasta, burgers, cakes, pizza, steamed dishes and salads](docs/screenshots/exported-recipes.png)
+
+</details>
 
 ## Building
 
