@@ -460,3 +460,11 @@ __pycache__/
 *.pyc
 /tmp/
 /temp/
+
+# Local AI instructions, credentials and machine-specific configuration
+AGENTS.md
+/.agents/
+/.codex/
+.env
+.env.*
+*.local.ps1

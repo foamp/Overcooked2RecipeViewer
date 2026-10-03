@@ -14,7 +14,7 @@ namespace Overcooked2RecipePreview
     public sealed class RecipePreviewPlugin : BaseUnityPlugin
     {
         public const string PluginGuid = "io.github.overcooked2.recipepreview";
-        public const string PluginName = "Overcooked 2 Recipe Preview";
+        public const string PluginName = "Overcooked2RecipeViewer";
         public const string PluginVersion = "0.8.3";
 
         private static RecipePreviewPlugin s_instance;

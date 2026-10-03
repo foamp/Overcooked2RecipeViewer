@@ -1,18 +1,32 @@
 param(
-    [string]$GameDir = 'E:\game\steam\steamapps\common\Overcooked! 2'
+    [string]$GameDir = $env:OC2_GAME_DIR,
+    [string]$CompilerPath = (Join-Path $env:WINDIR 'Microsoft.NET\Framework\v3.5\csc.exe')
 )
 
 $ErrorActionPreference = 'Stop'
 
-$compiler = 'C:\Windows\Microsoft.NET\Framework\v3.5\csc.exe'
-$source = Join-Path $PSScriptRoot 'RecipePreviewPlugin.cs'
-$nativeSource = Join-Path $PSScriptRoot 'RecipeBoard.cs'
-$clipboardSource = Join-Path $PSScriptRoot 'ClipboardImage.cs'
-$pngSource = Join-Path $PSScriptRoot 'PngStreamWriter.cs'
-$sortSource = Join-Path $PSScriptRoot 'RecipeSortMetadata.cs'
-$layoutSource = Join-Path $PSScriptRoot 'RecipeLayoutStore.cs'
-$uiTextSource = Join-Path $PSScriptRoot 'RecipeUiText.cs'
-$output = Join-Path $PSScriptRoot 'Overcooked2RecipePreview.dll'
+if ([string]::IsNullOrWhiteSpace($GameDir)) {
+    throw 'Specify -GameDir with your Overcooked! 2 installation directory, or set OC2_GAME_DIR.'
+}
+if (-not (Test-Path -LiteralPath $GameDir -PathType Container)) {
+    throw "Game directory not found: $GameDir"
+}
+$GameDir = (Resolve-Path -LiteralPath $GameDir).ProviderPath
+if (-not (Test-Path -LiteralPath $CompilerPath -PathType Leaf)) {
+    throw "C# compiler not found: $CompilerPath. Install the .NET Framework 3.5 tools or specify -CompilerPath."
+}
+
+$sources = @(
+    'RecipeViewerPlugin.cs',
+    'RecipeBoard.cs',
+    'ClipboardImage.cs',
+    'PngStreamWriter.cs',
+    'RecipeSortMetadata.cs',
+    'RecipeLayoutStore.cs',
+    'RecipeUiText.cs'
+) | ForEach-Object { Join-Path $PSScriptRoot $_ }
+$outputDirectory = Join-Path $PSScriptRoot 'artifacts'
+$output = Join-Path $outputDirectory 'Overcooked2RecipeViewer.dll'
 $managed = Join-Path $GameDir 'Overcooked2_Data\Managed'
 $core = Join-Path $GameDir 'BepInEx\core'
 
@@ -33,14 +47,13 @@ $references = @(
     (Join-Path $managed 'UnityEngine.UI.dll')
 )
 
-if (-not (Test-Path -LiteralPath $compiler)) {
-    throw "C# compiler not found: $compiler"
-}
-
-foreach ($reference in $references) {
-    if (-not (Test-Path -LiteralPath $reference)) {
-        throw "Required reference not found: $reference"
+foreach ($file in ($sources + $references)) {
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+        throw "Required source or reference not found: $file"
     }
+}
+if (-not (Test-Path -LiteralPath $outputDirectory -PathType Container)) {
+    New-Item -ItemType Directory -Path $outputDirectory | Out-Null
 }
 
 $arguments = @(
@@ -52,22 +65,13 @@ $arguments = @(
     '/optimize+',
     "/out:$output"
 )
-
 foreach ($reference in $references) {
     $arguments += "/reference:$reference"
 }
+$arguments += $sources
 
-$arguments += $source
-$arguments += $nativeSource
-$arguments += $clipboardSource
-$arguments += $pngSource
-$arguments += $sortSource
-$arguments += $layoutSource
-$arguments += $uiTextSource
-
-& $compiler $arguments
+& $CompilerPath $arguments
 if ($LASTEXITCODE -ne 0) {
     throw "Compilation failed with exit code $LASTEXITCODE"
 }
-
 Write-Host "Built: $output"
