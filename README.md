@@ -1,4 +1,7 @@
-# Overcooked 2 Recipe Preview — 最小验证版
+# Overcooked2RecipePreview
+A BepInEx mod for Overcooked! 2 with recipe preview, arrangement and customization features.
+
+## Overcooked 2 Recipe Preview — 最小验证版
 
 当前版本：`0.8.3`。
 
