@@ -21,6 +21,12 @@ namespace Overcooked2RecipePreview
 
         private Harmony _harmony;
         private ConfigEntry<KeyboardShortcut> _toggleShortcut;
+        private readonly ConfigurationManagerAttributes _shortcutLabels = new ConfigurationManagerAttributes();
+        private float _nextLanguageCheck;
+        private Font _chineseFont;
+        private Font _englishFont;
+        private bool _uiFontApplied;
+        private bool _uiFontChinese;
         private readonly List<RecipeInfo> _recipes = new List<RecipeInfo>();
         private LevelConfigBase _currentLevelConfig;
         private LevelConfigBase _lastLevelConfig;
@@ -29,6 +35,15 @@ namespace Overcooked2RecipePreview
         private bool _overlayVisible;
         private RecipeBoard _nativeOverlay;
         private float _nextToggleTime;
+        private bool _presetOpen;
+        private Vector2 _presetScroll;
+        private GUIStyle _buttonStyle;
+        private GUIStyle _selectedStyle;
+        private GUIStyle _menuFrameStyle;
+        private GUIStyle _menuBoxStyle;
+        private GUIStyle _headingStyle;
+        private GUIStyle _statusStyle;
+        private readonly List<Texture2D> _uiTextures = new List<Texture2D>();
 
         internal static RecipePreviewPlugin Instance
         {
@@ -38,11 +53,12 @@ namespace Overcooked2RecipePreview
         private void Awake()
         {
             s_instance = this;
+            RefreshUiLanguage();
             _toggleShortcut = Config.Bind(
                 "Keyboard shortcuts",
                 "Toggle all recipe images",
                 new KeyboardShortcut(KeyCode.Insert),
-                "Show or hide every possible recipe in the current level using the game's original recipe cards.");
+                new ConfigDescription(RecipeUiText.Text(UiTextKey.ShortcutDescription), null, _shortcutLabels));
             _harmony = new Harmony(PluginGuid);
             _harmony.PatchAll(Assembly.GetExecutingAssembly());
             Logger.LogInfo(PluginName + " " + PluginVersion + " loaded. Toggle key: " + _toggleShortcut.Value);
@@ -50,6 +66,7 @@ namespace Overcooked2RecipePreview
 
         private void Update()
         {
+            if (Time.realtimeSinceStartup >= _nextLanguageCheck) RefreshUiLanguage();
             if (_toggleShortcut != null &&
                 _toggleShortcut.Value.IsDown() &&
                 Time.realtimeSinceStartup >= _nextToggleTime)
@@ -66,12 +83,15 @@ namespace Overcooked2RecipePreview
             {
                 if (_nativeOverlay != null) _nativeOverlay.ScrollPage(-1);
             }
-            if (_overlayVisible && _nativeOverlay != null && Input.mouseScrollDelta.y != 0f)
+            if (_overlayVisible && !_presetOpen && _nativeOverlay != null && Input.mouseScrollDelta.y != 0f)
             {
-                _nativeOverlay.ScrollWheel(Input.mouseScrollDelta.y,
-                    Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift));
+                if (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
+                    _nativeOverlay.ZoomWheel(Input.mouseScrollDelta.y, Input.mousePosition);
+                else
+                    _nativeOverlay.ScrollWheel(Input.mouseScrollDelta.y,
+                        Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift));
             }
-            if (_overlayVisible && _nativeOverlay != null) _nativeOverlay.UpdatePointer();
+            if (_overlayVisible && _nativeOverlay != null) _nativeOverlay.UpdatePointer(_presetOpen);
         }
 
         private void OnDestroy()
@@ -82,6 +102,10 @@ namespace Overcooked2RecipePreview
             }
 
             HideRecipeOverlay();
+            for (int i = 0; i < _uiTextures.Count; i++)
+                if (_uiTextures[i] != null) UnityEngine.Object.Destroy(_uiTextures[i]);
+            _uiTextures.Clear();
+            if (_chineseFont != null) UnityEngine.Object.Destroy(_chineseFont);
 
             if (ReferenceEquals(s_instance, this))
             {
@@ -180,7 +204,8 @@ namespace Overcooked2RecipePreview
 
             try
             {
-                _nativeOverlay = new RecipeBoard(_recipes, Logger);
+                string levelKey = levelConfig.GetType().FullName + "|" + levelConfig.name;
+                _nativeOverlay = new RecipeBoard(_recipes, levelKey, Logger);
                 StartCoroutine(_nativeOverlay.FinalizeCards());
                 _overlayVisible = true;
                 Logger.LogInfo("Showing " + _recipes.Count + " draggable original recipe cards.");
@@ -193,6 +218,89 @@ namespace Overcooked2RecipePreview
             }
         }
 
+        private void RefreshUiLanguage()
+        {
+            _nextLanguageCheck = Time.realtimeSinceStartup + 0.5f;
+            RecipeUiText.RefreshLanguage(Logger);
+            _shortcutLabels.DispName = RecipeUiText.Text(UiTextKey.ShortcutName);
+            _shortcutLabels.Category = RecipeUiText.Text(UiTextKey.ShortcutCategory);
+            _shortcutLabels.Description = RecipeUiText.Text(UiTextKey.ShortcutDescription);
+        }
+
+        private void ApplyUiFont()
+        {
+            bool chinese = RecipeUiText.Chinese;
+            if (_uiFontApplied && _uiFontChinese == chinese) return;
+            if (chinese && _chineseFont == null)
+            {
+                try
+                {
+                    _chineseFont = Font.CreateDynamicFontFromOSFont(
+                        new string[] { "Microsoft YaHei", "SimHei", "Arial Unicode MS" }, 14);
+                }
+                catch (Exception exception)
+                {
+                    Logger.LogWarning("Could not create Chinese UI font; using default font: " + exception);
+                }
+            }
+            Font font = chinese && _chineseFont != null ? _chineseFont : _englishFont;
+            _buttonStyle.font = font;
+            _selectedStyle.font = font;
+            _headingStyle.font = font;
+            _statusStyle.font = font;
+            _uiFontChinese = chinese;
+            _uiFontApplied = true;
+        }
+
+        private Texture2D Swatch(Color color)
+        {
+            Texture2D texture = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+            texture.hideFlags = HideFlags.HideAndDontSave;
+            texture.SetPixel(0, 0, color);
+            texture.Apply();
+            _uiTextures.Add(texture);
+            return texture;
+        }
+
+        private void EnsureUiStyles()
+        {
+            if (_buttonStyle != null) return;
+            Texture2D normal = Swatch(new Color(0.15f, 0.28f, 0.27f, 1f));
+            Texture2D hover = Swatch(new Color(0.25f, 0.41f, 0.37f, 1f));
+            Texture2D pressed = Swatch(new Color(0.55f, 0.36f, 0.16f, 1f));
+            Texture2D selected = Swatch(new Color(0.56f, 0.41f, 0.20f, 1f));
+            Texture2D frame = Swatch(new Color(0.82f, 0.66f, 0.36f, 1f));
+            Texture2D menu = Swatch(new Color(0.085f, 0.18f, 0.18f, 0.98f));
+
+            _buttonStyle = new GUIStyle(GUI.skin.button);
+            _englishFont = _buttonStyle.font;
+            _buttonStyle.border = new RectOffset(0, 0, 0, 0);
+            _buttonStyle.normal.background = normal;
+            _buttonStyle.hover.background = hover;
+            _buttonStyle.active.background = pressed;
+            _buttonStyle.normal.textColor = new Color(1f, 0.94f, 0.77f);
+            _buttonStyle.hover.textColor = Color.white;
+            _buttonStyle.active.textColor = Color.white;
+            _buttonStyle.fontSize = 14;
+            _buttonStyle.fontStyle = FontStyle.Bold;
+            _buttonStyle.alignment = TextAnchor.MiddleCenter;
+            _buttonStyle.padding = new RectOffset(8, 8, 3, 3);
+            _selectedStyle = new GUIStyle(_buttonStyle);
+            _selectedStyle.normal.background = selected;
+            _selectedStyle.normal.textColor = Color.white;
+            _menuFrameStyle = new GUIStyle(GUI.skin.box);
+            _menuFrameStyle.border = new RectOffset(0, 0, 0, 0);
+            _menuFrameStyle.normal.background = frame;
+            _menuBoxStyle = new GUIStyle(_menuFrameStyle);
+            _menuBoxStyle.normal.background = menu;
+            _headingStyle = new GUIStyle(GUI.skin.label);
+            _headingStyle.normal.textColor = new Color(1f, 0.94f, 0.77f);
+            _headingStyle.fontSize = 14;
+            _headingStyle.fontStyle = FontStyle.Bold;
+            _statusStyle = new GUIStyle(_headingStyle);
+            _statusStyle.fontSize = 12;
+            _statusStyle.normal.textColor = new Color(1f, 0.79f, 0.42f);
+        }
         private void OnGUI()
         {
             if (!_overlayVisible || _nativeOverlay == null) return;
@@ -204,15 +312,95 @@ namespace Overcooked2RecipePreview
 
             try
             {
+                EnsureUiStyles();
+                ApplyUiFont();
                 GUI.color = Color.white;
-                GUI.Label(new Rect(24f, 9f, Screen.width - 560f, 24f),
-                    "Recipes: " + _recipes.Count + "   |   Drag cards to reorder rows; wheel to scroll (Shift + wheel: sideways)");
+                GUI.Label(new Rect(24f, 9f, Screen.width - 840f, 24f),
+                    RecipeUiText.Text(UiTextKey.Heading, _recipes.Count,
+                        Mathf.RoundToInt(_nativeOverlay.Zoom * 100f)),
+                    _headingStyle);
                 if (!string.IsNullOrEmpty(_nativeOverlay.Status))
-                    GUI.Label(new Rect(24f, 28f, Screen.width - 50f, 24f), _nativeOverlay.Status);
+                    GUI.Label(new Rect(24f, 28f, Screen.width - 50f, 24f), _nativeOverlay.Status, _statusStyle);
                 GUI.enabled = _nativeOverlay.Ready && !_nativeOverlay.Exporting && !_nativeOverlay.Dragging;
-                if (GUI.Button(new Rect(Screen.width - 523f, 10f, 125f, 30f), "Auto arrange"))
-                    _nativeOverlay.AutoArrange();
-                if (GUI.Button(new Rect(Screen.width - 390f, 10f, 118f, 30f), "Save PNG"))
+                Rect presetButton = new Rect(Screen.width - 820f, 10f, 205f, 30f);
+                IList<string> savedLayouts = _nativeOverlay.SavedLayouts;
+                bool hasDraft = _nativeOverlay.HasDraft;
+                int entryCount = 4 + (hasDraft ? 1 : 0) + savedLayouts.Count;
+                Rect presetMenu = new Rect(presetButton.x, 43f, 205f,
+                    Math.Min(350f, 10f + entryCount * 34f));
+                if (GUI.Button(presetButton, RecipeUiText.Text(UiTextKey.PresetButton, _nativeOverlay.SortLabel),
+                    _buttonStyle))
+                {
+                    _presetOpen = !_presetOpen;
+                    _presetScroll = Vector2.zero;
+                }
+                if (_presetOpen)
+                {
+                    GUI.Box(presetMenu, "", _menuFrameStyle);
+                    GUI.Box(new Rect(presetMenu.x + 2f, presetMenu.y + 2f,
+                        presetMenu.width - 4f, presetMenu.height - 4f), "", _menuBoxStyle);
+                    Rect scrollArea = new Rect(presetMenu.x + 4f, presetMenu.y + 4f,
+                        presetMenu.width - 8f, presetMenu.height - 8f);
+                    _presetScroll = GUI.BeginScrollView(scrollArea, _presetScroll,
+                        new Rect(0f, 0f, presetMenu.width - 30f, entryCount * 34f));
+                    string[] labels = {
+                        RecipeUiText.PresetLabel(RecipeBoard.SortPreset.Original, true),
+                        RecipeUiText.PresetLabel(RecipeBoard.SortPreset.AutoArrange, true),
+                        RecipeUiText.PresetLabel(RecipeBoard.SortPreset.Name, true),
+                        RecipeUiText.PresetLabel(RecipeBoard.SortPreset.Cookware, true) };
+                    int entry = 0;
+                    for (int i = 0; i < labels.Length; i++, entry++)
+                    {
+                        if (GUI.Button(new Rect(1f, entry * 34f, presetMenu.width - 30f, 32f),
+                            labels[i],
+                            _nativeOverlay.UsingBuiltInPreset &&
+                            _nativeOverlay.CurrentPreset == (RecipeBoard.SortPreset)i
+                                ? _selectedStyle : _buttonStyle))
+                        {
+                            _nativeOverlay.ApplySortPreset((RecipeBoard.SortPreset)i);
+                            _presetOpen = false;
+                        }
+                    }
+                    if (hasDraft)
+                    {
+                        if (GUI.Button(new Rect(1f, entry * 34f, presetMenu.width - 30f, 32f),
+                            RecipeUiText.Text(UiTextKey.CustomLastEdit),
+                            _nativeOverlay.UsingDraft
+                                ? _selectedStyle : _buttonStyle))
+                        {
+                            _nativeOverlay.ApplyDraftLayout();
+                            _presetOpen = false;
+                        }
+                        entry++;
+                    }
+                    for (int i = 0; i < savedLayouts.Count; i++, entry++)
+                    {
+                        string name = savedLayouts[i];
+                        if (GUI.Button(new Rect(1f, entry * 34f, presetMenu.width - 64f, 32f),
+                            RecipeUiText.LayoutName(name),
+                            _nativeOverlay.ActiveSavedLayout == name
+                                ? _selectedStyle : _buttonStyle))
+                        {
+                            _nativeOverlay.ApplySavedLayout(name);
+                            _presetOpen = false;
+                        }
+                        if (GUI.Button(new Rect(presetMenu.width - 60f, entry * 34f, 29f, 32f),
+                            new GUIContent("X", RecipeUiText.Text(UiTextKey.DeleteTooltip)), _buttonStyle))
+                        {
+                            _nativeOverlay.DeleteSavedLayout(name);
+                            break;
+                        }
+                    }
+                    GUI.EndScrollView();
+                    if (Event.current.type == EventType.MouseDown &&
+                        !presetButton.Contains(Event.current.mousePosition) &&
+                        !presetMenu.Contains(Event.current.mousePosition))
+                        _presetOpen = false;
+                }
+                if (GUI.Button(new Rect(Screen.width - 605f, 10f, 150f, 30f),
+                    RecipeUiText.Text(UiTextKey.SaveLayout), _buttonStyle))
+                    _nativeOverlay.SaveCurrentLayout();
+                if (GUI.Button(new Rect(Screen.width - 445f, 10f, 118f, 30f), RecipeUiText.Text(UiTextKey.SavePng), _buttonStyle))
                 {
                     string fileName = "recipes-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" +
                         Guid.NewGuid().ToString("N").Substring(0, 6) + ".png";
@@ -220,7 +408,7 @@ namespace Overcooked2RecipePreview
                         Path.Combine("RecipePreviewExports", fileName));
                     StartCoroutine(_nativeOverlay.ExportPng(exportPath));
                 }
-                if (GUI.Button(new Rect(Screen.width - 264f, 10f, 130f, 30f), "Open PNG folder"))
+                if (GUI.Button(new Rect(Screen.width - 319f, 10f, 185f, 30f), RecipeUiText.Text(UiTextKey.OpenPngFolder), _buttonStyle))
                 {
                     string folder = Path.Combine(Paths.BepInExRootPath, "RecipePreviewExports");
                     Directory.CreateDirectory(folder);
@@ -228,6 +416,7 @@ namespace Overcooked2RecipePreview
                 }
                 GUI.enabled = previousEnabled && !_nativeOverlay.Exporting;
                 float scrollbarHeight = Math.Max(50f, Screen.height - 105f);
+                GUI.color = new Color(0.91f, 0.75f, 0.43f, 1f);
                 float newScroll = GUI.VerticalScrollbar(
                     new Rect(Screen.width - 25f, 52f, 18f, scrollbarHeight),
                     _nativeOverlay.ScrollY,
@@ -247,8 +436,12 @@ namespace Overcooked2RecipePreview
                     if (Math.Abs(newScrollX - _nativeOverlay.ScrollX) > 0.1f)
                         _nativeOverlay.SetScroll(newScrollX, _nativeOverlay.ScrollY);
                 }
-                if (GUI.Button(new Rect(Screen.width - 126f, 10f, 104f, 30f), "Close"))
+                GUI.color = Color.white;
+                if (GUI.Button(new Rect(Screen.width - 126f, 10f, 104f, 30f), RecipeUiText.Text(UiTextKey.Close), _buttonStyle))
                     HideRecipeOverlay();
+                if (_presetOpen && !string.IsNullOrEmpty(GUI.tooltip))
+                    GUI.Label(new Rect(24f, Screen.height - 51f, Screen.width - 70f, 20f),
+                        GUI.tooltip, _statusStyle);
             }
             catch (Exception exception)
             {
@@ -268,6 +461,7 @@ namespace Overcooked2RecipePreview
             if (_overlayVisible)
             {
                 _overlayVisible = false;
+                _presetOpen = false;
                 if (_nativeOverlay != null) _nativeOverlay.Destroy();
                 _nativeOverlay = null;
                 Logger.LogInfo("Recipe card overlay hidden.");

@@ -9,11 +9,17 @@ $source = Join-Path $PSScriptRoot 'RecipePreviewPlugin.cs'
 $nativeSource = Join-Path $PSScriptRoot 'RecipeBoard.cs'
 $clipboardSource = Join-Path $PSScriptRoot 'ClipboardImage.cs'
 $pngSource = Join-Path $PSScriptRoot 'PngStreamWriter.cs'
+$sortSource = Join-Path $PSScriptRoot 'RecipeSortMetadata.cs'
+$layoutSource = Join-Path $PSScriptRoot 'RecipeLayoutStore.cs'
+$uiTextSource = Join-Path $PSScriptRoot 'RecipeUiText.cs'
 $output = Join-Path $PSScriptRoot 'Overcooked2RecipePreview.dll'
 $managed = Join-Path $GameDir 'Overcooked2_Data\Managed'
 $core = Join-Path $GameDir 'BepInEx\core'
 
 $references = @(
+    (Join-Path $managed 'mscorlib.dll'),
+    (Join-Path $managed 'System.dll'),
+    (Join-Path $managed 'System.Core.dll'),
     (Join-Path $core 'BepInEx.dll'),
     (Join-Path $core '0Harmony.dll'),
     (Join-Path $managed 'Assembly-CSharp.dll'),
@@ -22,6 +28,7 @@ $references = @(
     (Join-Path $managed 'UnityEngine.AnimationModule.dll'),
     (Join-Path $managed 'UnityEngine.ImageConversionModule.dll'),
     (Join-Path $managed 'UnityEngine.IMGUIModule.dll'),
+    (Join-Path $managed 'UnityEngine.TextRenderingModule.dll'),
     (Join-Path $managed 'UnityEngine.UIModule.dll'),
     (Join-Path $managed 'UnityEngine.UI.dll')
 )
@@ -38,6 +45,9 @@ foreach ($reference in $references) {
 
 $arguments = @(
     '/nologo',
+    '/codepage:65001',
+    '/noconfig',
+    '/nostdlib+',
     '/target:library',
     '/optimize+',
     "/out:$output"
@@ -51,6 +61,9 @@ $arguments += $source
 $arguments += $nativeSource
 $arguments += $clipboardSource
 $arguments += $pngSource
+$arguments += $sortSource
+$arguments += $layoutSource
+$arguments += $uiTextSource
 
 & $compiler $arguments
 if ($LASTEXITCODE -ne 0) {

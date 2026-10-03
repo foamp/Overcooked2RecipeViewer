@@ -3,8 +3,10 @@
 *.exe
 *.pdb
 *.mdb
-/bin/
-/obj/
+bin/
+obj/
+build/
+/artifacts/
 
 # Generated exports and logs
 /RecipePreviewExports/
@@ -20,3 +22,11 @@
 *~
 .DS_Store
 Thumbs.db
+
+# Local caches and temporary directories
+/.cache/
+/.pytest_cache/
+__pycache__/
+*.pyc
+/tmp/
+/temp/

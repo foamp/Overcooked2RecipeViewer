@@ -19,6 +19,12 @@ namespace Overcooked2RecipePreview
         private const float BoardPadding = 16f;
         private const float BottomSafetyPadding = 200f;
         private const float ScrollStep = 110f;
+        private const float InsertZoneHalfHeight = 5f;
+        private const float MinZoom = 0.5f;
+        private const float MaxZoom = 2f;
+        private static float s_lastZoom = 1f;
+
+        internal enum SortPreset { Original, AutoArrange, Name, Cookware }
 
         private sealed class Card
         {
@@ -30,6 +36,8 @@ namespace Overcooked2RecipePreview
             internal float MinX, MaxX, MinY, MaxY;
             internal float Width, Height;
             internal float LayoutX, LayoutTop;
+            internal int OriginalIndex;
+            internal string LayoutId;
         }
 
         private sealed class CardCapture
@@ -42,8 +50,14 @@ namespace Overcooked2RecipePreview
         private readonly Canvas _canvas;
         private readonly Image _shade;
         private readonly RectTransform _viewport;
+        private readonly Image _viewportImage;
+        private readonly List<RectTransform> _rowPanels = new List<RectTransform>();
         private readonly RectTransform _content;
+        private readonly RectTransform _handleLayer;
+        private readonly RectTransform _dropMarker;
+        private readonly List<RectTransform> _rowHandles = new List<RectTransform>();
         private readonly ManualLogSource _logger;
+        private readonly RecipeLayoutStore _layoutStore;
         private readonly List<Card> _cards = new List<Card>();
         private readonly List<List<Card>> _rows = new List<List<Card>>();
         private readonly List<float> _rowTops = new List<float>();
@@ -56,31 +70,68 @@ namespace Overcooked2RecipePreview
         private float _layoutHeight;
         private float _scrollX;
         private float _scrollY;
+        private float _zoom = s_lastZoom;
         private Card _dragged;
         private Card _placeholderCard;
         private RectTransform _placeholderRect;
         private List<Card> _dragOriginalRow;
         private int _dragOriginalIndex;
+        private int _dragOriginalRowIndex;
         private Vector2 _dragOffset;
+        private List<Card> _dragRow;
+        private int _rowDropIndex = -1;
+        private int _cardGapIndex = -1;
         private bool _ready;
         private bool _exporting;
         private bool _needsExtentRefresh;
-        private string _status = string.Empty;
+        private UiTextKey _statusKey = UiTextKey.None;
+        private object[] _statusValues = new object[0];
+        private SortPreset _selectedPreset = SortPreset.Original;
+
+
+        private bool _usingBuiltInPreset = true;
+        private bool _usingDraft;
+        private string _activeSavedLayout;
 
         internal float ScrollY { get { return _scrollY; } }
         internal float ViewportHeight { get { return _viewportHeight; } }
-        internal float ContentHeight { get { return _contentHeight; } }
+        internal float ContentHeight { get { return _contentHeight * _zoom; } }
         internal float ScrollX { get { return _scrollX; } }
         internal float ViewportWidth { get { return _viewportWidth; } }
-        internal float ContentWidth { get { return _contentWidth; } }
+        internal float ContentWidth { get { return _contentWidth * _zoom; } }
+        internal float Zoom { get { return _zoom; } }
         internal bool Ready { get { return _ready; } }
         internal bool Exporting { get { return _exporting; } }
-        internal bool Dragging { get { return _dragged != null; } }
-        internal string Status { get { return _status; } }
+        internal bool Dragging { get { return _dragged != null || _dragRow != null; } }
+        internal string Status { get { return RecipeUiText.Text(_statusKey, _statusValues); } }
+        internal string SortLabel
+        {
+            get
+            {
+                if (_usingBuiltInPreset) return RecipeUiText.PresetLabel(_selectedPreset, false);
+                return _activeSavedLayout == null ? RecipeUiText.Text(UiTextKey.Custom) :
+                    RecipeUiText.LayoutName(_activeSavedLayout);
+            }
+        }
+        internal SortPreset CurrentPreset { get { return _selectedPreset; } }
+        internal bool UsingBuiltInPreset { get { return _usingBuiltInPreset; } }
+        internal bool UsingDraft { get { return _usingDraft; } }
+        internal string ActiveSavedLayout { get { return _activeSavedLayout; } }
+        internal IList<string> SavedLayouts { get { return _layoutStore == null ? new List<string>() : _layoutStore.SavedNames(); } }
+        internal bool HasDraft { get { return _layoutStore != null && _layoutStore.ReadDraft() != null; } }
 
-        internal RecipeBoard(IList<RecipeInfo> recipes, ManualLogSource logger)
+        internal RecipeBoard(IList<RecipeInfo> recipes, string levelKey, ManualLogSource logger)
         {
             _logger = logger;
+            try
+            {
+                _layoutStore = new RecipeLayoutStore(levelKey, logger);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning("Layout storage unavailable; preview will use built-in presets: " +
+                    exception);
+            }
             try
             {
                 RecipeFlowGUI flow = UnityEngine.Object.FindObjectOfType<RecipeFlowGUI>();
@@ -104,12 +155,41 @@ namespace Overcooked2RecipePreview
                 RectTransform backdrop = CreateRect("Backdrop", _root.transform);
                 Stretch(backdrop, 0f, 0f, 0f, 0f);
                 _shade = backdrop.gameObject.AddComponent<Image>();
-                _shade.color = new Color(0f, 0f, 0f, 0.78f);
+                _shade.color = new Color(0.025f, 0.055f, 0.055f, 0.92f);
                 _shade.raycastTarget = true;
+                RectTransform toolbar = CreateRect("ToolbarPanel", backdrop);
+                toolbar.anchorMin = new Vector2(0f, 1f);
+                toolbar.anchorMax = new Vector2(1f, 1f);
+                toolbar.pivot = new Vector2(0.5f, 1f);
+                toolbar.anchoredPosition = Vector2.zero;
+                toolbar.sizeDelta = new Vector2(0f, 49f);
+                Image toolbarImage = toolbar.gameObject.AddComponent<Image>();
+                toolbarImage.color = new Color(0.15f, 0.28f, 0.27f, 0.98f);
+                toolbarImage.raycastTarget = false;
 
                 _viewport = CreateRect("Viewport", backdrop);
-                Stretch(_viewport, 24f, 52f, 36f, 48f);
+                Stretch(_viewport, 72f, 52f, 36f, 48f);
+                _viewportImage = _viewport.gameObject.AddComponent<Image>();
+                _viewportImage.color = new Color(0.075f, 0.16f, 0.16f, 0.96f);
+                _viewportImage.raycastTarget = false;
+                Outline viewportBorder = _viewport.gameObject.AddComponent<Outline>();
+                viewportBorder.effectColor = new Color(0.68f, 0.53f, 0.29f, 0.74f);
+                viewportBorder.effectDistance = new Vector2(2f, 2f);
                 _viewport.gameObject.AddComponent<RectMask2D>();
+                _handleLayer = CreateRect("RowHandles", backdrop);
+                _handleLayer.anchorMin = new Vector2(0f, 1f);
+                _handleLayer.anchorMax = new Vector2(0f, 1f);
+                _handleLayer.pivot = new Vector2(0f, 1f);
+                _handleLayer.anchoredPosition = new Vector2(21f, -52f);
+                _handleLayer.sizeDelta = new Vector2(38f, Screen.height - 100f);
+                _dropMarker = CreateRect("RowDropMarker", _viewport);
+                _dropMarker.anchorMin = new Vector2(0f, 1f);
+                _dropMarker.anchorMax = new Vector2(0f, 1f);
+                _dropMarker.pivot = new Vector2(0f, 1f);
+                Image markerImage = _dropMarker.gameObject.AddComponent<Image>();
+                markerImage.color = new Color(1f, 0.78f, 0.32f, 0.9f);
+                markerImage.raycastTarget = false;
+                _dropMarker.gameObject.SetActive(false);
                 Canvas.ForceUpdateCanvases();
                 _viewportWidth = Math.Max(320f, _viewport.rect.width);
                 _viewportHeight = Math.Max(300f, _viewport.rect.height);
@@ -118,6 +198,7 @@ namespace Overcooked2RecipePreview
                 _content.anchorMin = new Vector2(0f, 1f);
                 _content.anchorMax = new Vector2(0f, 1f);
                 _content.pivot = new Vector2(0f, 1f);
+                _content.localScale = new Vector3(_zoom, _zoom, 1f);
                 _contentWidth = _viewportWidth;
                 _contentHeight = _viewportHeight;
                 _content.sizeDelta = new Vector2(_contentWidth, _contentHeight);
@@ -126,6 +207,7 @@ namespace Overcooked2RecipePreview
                 Vector2 nativeSize = prefabRect == null ? new Vector2(100f, 100f) : prefabRect.rect.size;
                 if (nativeSize.x < 1f || nativeSize.y < 1f) nativeSize = new Vector2(100f, 100f);
 
+                Dictionary<string, int> identityCounts = new Dictionary<string, int>();
                 for (int i = 0; i < recipes.Count; i++)
                 {
                     GameObject clone = GameUtils.InstantiateUIController(prefab.gameObject, _content);
@@ -146,15 +228,21 @@ namespace Overcooked2RecipePreview
                     card.Widget = widget;
                     card.Rect = rect;
                     card.Group = clone.AddComponent<CanvasGroup>();
+                    card.OriginalIndex = i;
+                    string identity = recipes[i].UniqueId + "|" + recipes[i].Name;
+                    int ordinal;
+                    identityCounts.TryGetValue(identity, out ordinal);
+                    identityCounts[identity] = ordinal + 1;
+                    card.LayoutId = identity + "|" + ordinal;
                     _cards.Add(card);
                 }
 
                 _placeholderRect = CreateRect("DropPlaceholder", _content);
                 Image placeholderImage = _placeholderRect.gameObject.AddComponent<Image>();
-                placeholderImage.color = new Color(0.28f, 0.72f, 0.96f, 0.22f);
+                placeholderImage.color = new Color(1f, 0.75f, 0.35f, 0.23f);
                 placeholderImage.raycastTarget = false;
                 Outline placeholderBorder = _placeholderRect.gameObject.AddComponent<Outline>();
-                placeholderBorder.effectColor = new Color(0.34f, 0.83f, 1f, 0.9f);
+                placeholderBorder.effectColor = new Color(1f, 0.82f, 0.43f, 0.95f);
                 placeholderBorder.effectDistance = new Vector2(3f, 3f);
                 _placeholderRect.gameObject.SetActive(false);
 
@@ -222,18 +310,20 @@ namespace Overcooked2RecipePreview
                 frame.anchoredPosition = new Vector2(card.MinX - 7f, card.MaxY + 7f);
                 frame.sizeDelta = new Vector2(card.Width + 14f, card.Height + 14f);
                 Image fill = frame.gameObject.AddComponent<Image>();
-                fill.color = new Color(0.55f, 0.78f, 0.97f, 0.18f);
+                fill.color = new Color(1f, 0.81f, 0.48f, 0.19f);
                 fill.raycastTarget = false;
                 Outline border = frame.gameObject.AddComponent<Outline>();
-                border.effectColor = new Color(0.36f, 0.82f, 1f, 0.85f);
+                border.effectColor = new Color(1f, 0.76f, 0.31f, 0.9f);
                 border.effectDistance = new Vector2(3f, 3f);
                 frame.SetAsFirstSibling();
                 card.DragFrame = frame.gameObject;
                 frame.gameObject.SetActive(false);
             }
-            BuildInitialRows();
+            BuildRows(_cards);
             LayoutRows();
             _ready = true;
+            if (_layoutStore == null || !ApplyStoredLayout(_layoutStore.ReadDraft(), null))
+                ApplySortPreset(SortPreset.Cookware);
             float smallest = float.MaxValue, largest = 0f;
             for (int i = 0; i < _cards.Count; i++)
             {
@@ -384,14 +474,14 @@ namespace Overcooked2RecipePreview
             }
         }
 
-        private void BuildInitialRows()
+        private void BuildRows(IList<Card> cards)
         {
             _rows.Clear();
             List<Card> row = new List<Card>();
             float used = BoardPadding;
-            for (int i = 0; i < _cards.Count; i++)
+            for (int i = 0; i < cards.Count; i++)
             {
-                Card card = _cards[i];
+                Card card = cards[i];
                 float needed = (row.Count == 0 ? 0f : HorizontalGap) + card.Width;
                 if (row.Count > 0 && used + needed + BoardPadding > _viewportWidth)
                 {
@@ -410,6 +500,7 @@ namespace Overcooked2RecipePreview
         {
             _rowTops.Clear();
             _rowHeights.Clear();
+            EnsureRowPanels();
             float top = BoardPadding;
             float widest = BoardPadding * 2f;
             for (int r = 0; r < _rows.Count; r++)
@@ -436,27 +527,34 @@ namespace Overcooked2RecipePreview
                     rowHeight = Math.Max(rowHeight, card.Height);
                 }
                 _rowHeights.Add(rowHeight);
+                RectTransform panel = _rowPanels[r];
+                panel.anchoredPosition = new Vector2(8f, -top + 8f);
+                panel.sizeDelta = new Vector2(
+                    Math.Max(_viewportWidth - 16f, x - HorizontalGap + BoardPadding - 8f),
+                    rowHeight + 16f);
                 widest = Math.Max(widest, x - HorizontalGap + BoardPadding);
                 top += rowHeight + VerticalGap;
             }
             _layoutHeight = _rows.Count == 0 ? BoardPadding * 2f :
                 top - VerticalGap + BoardPadding + BottomSafetyPadding;
             _layoutWidth = widest;
-            _contentWidth = Math.Max(_viewportWidth, _layoutWidth);
-            _contentHeight = Math.Max(_viewportHeight, _layoutHeight);
+            _contentWidth = Math.Max(_viewportWidth / _zoom, _layoutWidth);
+            _contentHeight = Math.Max(_viewportHeight / _zoom, _layoutHeight);
             _content.sizeDelta = new Vector2(_contentWidth, _contentHeight);
             _needsExtentRefresh = true;
+            EnsureRowHandles();
             SetScroll(_scrollX, _scrollY);
         }
 
         private void RefreshContentExtent()
         {
             _needsExtentRefresh = false;
-            if (_dragged != null || _exporting || _root == null) return;
+            if (_dragged != null || _dragRow != null || _exporting || _root == null) return;
             Canvas.ForceUpdateCanvases();
             _viewportWidth = Math.Max(320f, _viewport.rect.width);
             _viewportHeight = Math.Max(300f, _viewport.rect.height);
             float actualBottom = 0f;
+            float actualRight = 0f;
             Vector3[] corners = new Vector3[4];
             for (int i = 0; i < _cards.Count; i++)
             {
@@ -468,8 +566,11 @@ namespace Overcooked2RecipePreview
                     if (rect == null) continue;
                     rect.GetWorldCorners(corners);
                     for (int k = 0; k < 4; k++)
-                        actualBottom = Math.Max(actualBottom,
-                            -_content.InverseTransformPoint(corners[k]).y);
+                    {
+                        Vector3 point = _content.InverseTransformPoint(corners[k]);
+                        actualBottom = Math.Max(actualBottom, -point.y);
+                        actualRight = Math.Max(actualRight, point.x);
+                    }
                 }
             }
             // Base the maximum scroll on rendered artwork, not just the
@@ -477,70 +578,260 @@ namespace Overcooked2RecipePreview
             // the final row in the upper half of the viewport if necessary.
             float lastRowTop = _rowTops.Count == 0 ? 0f : _rowTops[_rowTops.Count - 1];
             float scrollableBottom = Math.Max(actualBottom + 80f,
-                lastRowTop + _viewportHeight * 0.55f);
-            _contentHeight = Math.Max(_viewportHeight,
+                lastRowTop + _viewportHeight / _zoom * 0.55f);
+            _contentHeight = Math.Max(_viewportHeight / _zoom,
                 Math.Max(_layoutHeight, scrollableBottom));
+            _contentWidth = Math.Max(_viewportWidth / _zoom,
+                Math.Max(_layoutWidth, actualRight + 40f));
             _content.sizeDelta = new Vector2(_contentWidth, _contentHeight);
             SetScroll(_scrollX, _scrollY);
             _logger.LogInfo(string.Format(
-                "Recipe scroll bounds: visible={0:0}, renderedBottom={1:0}, content={2:0}, maximum={3:0}.",
-                _viewportHeight, actualBottom, _contentHeight,
-                Math.Max(0f, _contentHeight - _viewportHeight)));
+                "Recipe scroll bounds: visible={0:0}x{1:0}, rendered={2:0}x{3:0}, content={4:0}x{5:0}.",
+                _viewportWidth, _viewportHeight, actualRight, actualBottom,
+                _contentWidth, _contentHeight));
         }
 
-        internal void UpdatePointer()
+        private void EnsureRowPanels()
+        {
+            while (_rowPanels.Count < _rows.Count)
+            {
+                RectTransform panel = CreateRect("RecipeRowPanel", _content);
+                panel.anchorMin = new Vector2(0f, 1f);
+                panel.anchorMax = new Vector2(0f, 1f);
+                panel.pivot = new Vector2(0f, 1f);
+                Image image = panel.gameObject.AddComponent<Image>();
+                image.color = new Color(0.14f, 0.27f, 0.26f, 0.92f);
+                image.raycastTarget = false;
+                Outline border = panel.gameObject.AddComponent<Outline>();
+                border.effectColor = new Color(0.60f, 0.46f, 0.25f, 0.55f);
+                border.effectDistance = new Vector2(2f, 2f);
+                panel.SetAsFirstSibling();
+                _rowPanels.Add(panel);
+            }
+            for (int i = 0; i < _rowPanels.Count; i++)
+                _rowPanels[i].gameObject.SetActive(i < _rows.Count);
+        }
+        private void EnsureRowHandles()
+        {
+            while (_rowHandles.Count < _rows.Count)
+            {
+                RectTransform handle = CreateRect("RowHandle", _handleLayer);
+                handle.anchorMin = new Vector2(0f, 1f);
+                handle.anchorMax = new Vector2(0f, 1f);
+                handle.pivot = new Vector2(0f, 1f);
+                handle.sizeDelta = new Vector2(36f, 38f);
+                Image background = handle.gameObject.AddComponent<Image>();
+                background.raycastTarget = false;
+                for (int line = 0; line < 3; line++)
+                {
+                    RectTransform grip = CreateRect("Grip", handle);
+                    grip.anchorMin = new Vector2(0f, 1f);
+                    grip.anchorMax = new Vector2(0f, 1f);
+                    grip.pivot = new Vector2(0f, 1f);
+                    grip.anchoredPosition = new Vector2(9f, -11f - line * 7f);
+                    grip.sizeDelta = new Vector2(18f, 3f);
+                    Image stripe = grip.gameObject.AddComponent<Image>();
+                    stripe.color = new Color(1f, 0.85f, 0.54f, 0.95f);
+                    stripe.raycastTarget = false;
+                }
+                _rowHandles.Add(handle);
+            }
+            for (int i = 0; i < _rowHandles.Count; i++)
+                _rowHandles[i].gameObject.SetActive(i < _rows.Count);
+        }
+
+        private void UpdateChrome(Vector2 mouse)
+        {
+            if (_root == null) return;
+            for (int i = 0; i < _rowHandles.Count; i++)
+            {
+                RectTransform handle = _rowHandles[i];
+                if (i >= _rows.Count) { handle.gameObject.SetActive(false); continue; }
+                float y = _rowTops[i] * _zoom - _scrollY + 5f;
+                bool visible = y + 38f > 0f && y < _viewportHeight;
+                handle.gameObject.SetActive(visible);
+                if (!visible) continue;
+                handle.anchoredPosition = new Vector2(0f, -y);
+                bool hover = RectTransformUtility.RectangleContainsScreenPoint(handle, mouse, null);
+                handle.GetComponent<Image>().color = _dragRow == _rows[i]
+                    ? new Color(0.61f, 0.37f, 0.12f, 0.95f)
+                    : hover ? new Color(0.35f, 0.28f, 0.17f, 0.94f)
+                    : new Color(0.16f, 0.20f, 0.20f, 0.88f);
+            }
+            int insertion = _dragRow != null ? _rowDropIndex : _cardGapIndex;
+            if (insertion < 0 || _rows.Count == 0)
+            {
+                _dropMarker.gameObject.SetActive(false);
+                return;
+            }
+            float markerTop = insertion == 0 ? BoardPadding * 0.5f :
+                insertion >= _rows.Count
+                    ? _rowTops[_rows.Count - 1] + _rowHeights[_rows.Count - 1] +
+                        VerticalGap * 0.5f
+                    : (_rowTops[insertion - 1] + _rowHeights[insertion - 1] +
+                        _rowTops[insertion]) * 0.5f;
+            float viewportY = markerTop * _zoom - _scrollY;
+            _dropMarker.gameObject.SetActive(viewportY >= 0f && viewportY < _viewportHeight);
+            _dropMarker.anchoredPosition = new Vector2(8f, -viewportY + 2f);
+            _dropMarker.sizeDelta = new Vector2(_viewportWidth - 16f, 4f);
+            _dropMarker.SetAsLastSibling();
+        }
+
+        private int FindCardGap(float fromTop)
+        {
+            for (int i = 1; i < _rows.Count; i++)
+            {
+                float middle = (_rowTops[i - 1] + _rowHeights[i - 1] +
+                    _rowTops[i]) * 0.5f;
+                if (Math.Abs(fromTop - middle) <= InsertZoneHalfHeight) return i;
+            }
+            return -1;
+        }
+
+        private int FindRowInsertion(float fromTop)
+        {
+            for (int i = 0; i < _rows.Count; i++)
+                if (fromTop < _rowTops[i] + _rowHeights[i] * 0.5f) return i;
+            return _rows.Count;
+        }
+
+        private void AutoScrollDuringDrag(Vector2 mouse, bool horizontal)
+        {
+            Vector2 local;
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(_viewport, mouse, null, out local);
+            float fromTop = _viewport.rect.yMax - local.y;
+            float y = _scrollY;
+            float x = _scrollX;
+            float speed = 260f * Time.unscaledDeltaTime;
+            if (fromTop < 30f) y -= speed;
+            else if (fromTop > _viewportHeight - 30f) y += speed;
+            if (horizontal)
+            {
+                float fromLeft = local.x - _viewport.rect.xMin;
+                if (fromLeft < 30f) x -= speed;
+                else if (fromLeft > _viewportWidth - 30f) x += speed;
+            }
+            SetScroll(x, y);
+        }
+        internal void UpdatePointer(bool blockNewDrag)
         {
             if (!_ready || _exporting || _root == null) return;
-            if (_needsExtentRefresh && _dragged == null) RefreshContentExtent();
+            if (_needsExtentRefresh && !Dragging) RefreshContentExtent();
             Vector2 mouse = Input.mousePosition;
-            if (_dragged == null && Input.GetMouseButtonDown(0) &&
-                RectTransformUtility.RectangleContainsScreenPoint(_viewport, mouse, null))
+
+            if (!Dragging && !blockNewDrag && Input.GetMouseButtonDown(0))
             {
-                for (int i = _cards.Count - 1; i >= 0; i--)
+                for (int i = 0; i < _rows.Count; i++)
                 {
-                    if (!ContainsPoint(_cards[i], mouse)) continue;
-                    _dragged = _cards[i];
-                    Vector2 local;
-                    RectTransformUtility.ScreenPointToLocalPointInRectangle(_content, mouse, null, out local);
-                    _dragOffset = _dragged.Rect.anchoredPosition - local;
-                    for (int row = 0; row < _rows.Count; row++)
+                    if (!_rowHandles[i].gameObject.activeSelf ||
+                        !RectTransformUtility.RectangleContainsScreenPoint(
+                            _rowHandles[i], mouse, null)) continue;
+                    _dragRow = _rows[i];
+                    _rowDropIndex = i;
+                    for (int c = 0; c < _dragRow.Count; c++)
+                        _dragRow[c].Group.alpha = 0.7f;
+                    break;
+                }
+                if (_dragRow == null &&
+                    RectTransformUtility.RectangleContainsScreenPoint(_viewport, mouse, null))
+                {
+                    for (int i = _cards.Count - 1; i >= 0; i--)
                     {
-                        int index = _rows[row].IndexOf(_dragged);
-                        if (index < 0) continue;
-                        _dragOriginalRow = _rows[row];
-                        _dragOriginalIndex = index;
-                        _placeholderCard = new Card();
-                        _placeholderCard.Width = _dragged.Width;
-                        _placeholderCard.Height = _dragged.Height;
-                        _rows[row][index] = _placeholderCard;
-                        _placeholderRect.gameObject.SetActive(true);
-                        _dragged.Group.alpha = 0.88f;
-                        _dragged.DragFrame.SetActive(true);
-                        LayoutRows();
+                        if (!ContainsPoint(_cards[i], mouse)) continue;
+                        _dragged = _cards[i];
+                        Vector2 local;
+                        RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                            _content, mouse, null, out local);
+                        _dragOffset = _dragged.Rect.anchoredPosition - local;
+                        for (int row = 0; row < _rows.Count; row++)
+                        {
+                            int index = _rows[row].IndexOf(_dragged);
+                            if (index < 0) continue;
+                            _dragOriginalRow = _rows[row];
+                            _dragOriginalIndex = index;
+                            _dragOriginalRowIndex = row;
+                            _placeholderCard = new Card();
+                            _placeholderCard.Width = _dragged.Width;
+                            _placeholderCard.Height = _dragged.Height;
+                            _rows[row][index] = _placeholderCard;
+                            _placeholderRect.gameObject.SetActive(true);
+                            _dragged.Group.alpha = 0.88f;
+                            _dragged.DragFrame.SetActive(true);
+                            LayoutRows();
+                            break;
+                        }
+                        _dragged.Rect.SetAsLastSibling();
                         break;
                     }
-                    _dragged.Rect.SetAsLastSibling();
-                    break;
                 }
             }
 
-            if (_dragged == null) return;
-            if (Input.GetMouseButton(0))
+            if (_dragRow != null)
             {
-                Vector2 local;
-                RectTransformUtility.ScreenPointToLocalPointInRectangle(_content, mouse, null, out local);
-                _dragged.Rect.anchoredPosition = local + _dragOffset;
-                MovePlaceholder(local);
-                Vector2 viewportLocal;
-                RectTransformUtility.ScreenPointToLocalPointInRectangle(_viewport, mouse, null, out viewportLocal);
-                float topDistance = _viewport.rect.yMax - viewportLocal.y;
-                if (topDistance < 35f) SetScroll(_scrollX, _scrollY - 220f * Time.unscaledDeltaTime);
-                if (topDistance > _viewportHeight - 35f)
-                    SetScroll(_scrollX, _scrollY + 220f * Time.unscaledDeltaTime);
+                if (Input.GetMouseButton(0))
+                {
+                    Vector2 local;
+                    RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                        _content, mouse, null, out local);
+                    _rowDropIndex = FindRowInsertion(-local.y);
+                    AutoScrollDuringDrag(mouse, false);
+                }
+                if (Input.GetMouseButtonUp(0)) DropRow(mouse);
+                UpdateChrome(mouse);
+                return;
             }
-            if (Input.GetMouseButtonUp(0)) DropCard(mouse);
+
+            if (_dragged != null)
+            {
+                if (Input.GetMouseButton(0))
+                {
+                    Vector2 local;
+                    RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                        _content, mouse, null, out local);
+                    _dragged.Rect.anchoredPosition = local + _dragOffset;
+                    bool overViewport = RectTransformUtility.RectangleContainsScreenPoint(
+                        _viewport, mouse, null);
+                    _cardGapIndex = overViewport ? FindCardGap(-local.y) : -1;
+                    if (_cardGapIndex < 0 && overViewport) MovePlaceholder(local);
+                    if (overViewport) AutoScrollDuringDrag(mouse, true);
+                }
+                if (Input.GetMouseButtonUp(0)) DropCard(mouse);
+            }
+            UpdateChrome(mouse);
         }
 
+        private void DropRow(Vector2 screenPoint)
+        {
+            if (_dragRow == null) return;
+            Vector2 local;
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                _viewport, screenPoint, null, out local);
+            bool inside = local.y <= _viewport.rect.yMax &&
+                local.y >= _viewport.rect.yMin &&
+                local.x >= _viewport.rect.xMin - 60f &&
+                local.x <= _viewport.rect.xMax;
+            bool moved = false;
+            if (inside)
+            {
+                int from = _rows.IndexOf(_dragRow);
+                int target = Math.Max(0, Math.Min(_rowDropIndex, _rows.Count));
+                if (from >= 0)
+                {
+                    _rows.RemoveAt(from);
+                    if (target > from) target--;
+                    _rows.Insert(Math.Min(target, _rows.Count), _dragRow);
+                    moved = true;
+                    SetStatus(UiTextKey.MovedRow, from + 1, target + 1);
+                    _logger.LogInfo(Status);
+                }
+            }
+            for (int i = 0; i < _dragRow.Count; i++)
+                _dragRow[i].Group.alpha = 1f;
+            _dragRow = null;
+            _rowDropIndex = -1;
+            LayoutRows();
+            if (moved) RecordCustomLayout();
+        }
         private bool ContainsPoint(Card card, Vector2 screenPoint)
         {
             Vector3 bottomLeft = card.Rect.TransformPoint(new Vector3(card.MinX, card.MinY, 0f));
@@ -555,40 +846,66 @@ namespace Overcooked2RecipePreview
         private void DropCard(Vector2 screenPoint)
         {
             Card dragged = _dragged;
-            _dragged = null;
             if (dragged == null) return;
-            if (_placeholderCard != null)
+            bool inside = RectTransformUtility.RectangleContainsScreenPoint(
+                _viewport, screenPoint, null);
+            Vector2 local;
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                _content, screenPoint, null, out local);
+            int gap = inside ? FindCardGap(-local.y) : -1;
+            List<Card> successor = gap >= 0 && gap < _rows.Count ? _rows[gap] : null;
+            if (inside && gap < 0) MovePlaceholder(local);
+            _dragged = null;
+            List<Card> destination = null;
+            int insertion = 0;
+            for (int row = 0; row < _rows.Count; row++)
             {
-                List<Card> destination = null;
-                int insertion = 0;
-                for (int row = 0; row < _rows.Count; row++)
-                {
-                    int index = _rows[row].IndexOf(_placeholderCard);
-                    if (index < 0) continue;
-                    destination = _rows[row];
-                    insertion = index;
-                    destination.RemoveAt(index);
-                    break;
-                }
-                if (!RectTransformUtility.RectangleContainsScreenPoint(_viewport, screenPoint, null))
-                {
-                    destination = _dragOriginalRow;
-                    insertion = _dragOriginalIndex;
-                }
-                if (destination == null) destination = _dragOriginalRow;
-                if (destination == null) destination = new List<Card>();
-                if (!_rows.Contains(destination)) _rows.Add(destination);
-                destination.Insert(Math.Min(insertion, destination.Count), dragged);
-                for (int row = _rows.Count - 1; row >= 0; row--)
-                    if (_rows[row].Count == 0) _rows.RemoveAt(row);
+                int index = _rows[row].IndexOf(_placeholderCard);
+                if (index < 0) continue;
+                destination = _rows[row];
+                insertion = index;
+                destination.RemoveAt(index);
+                break;
             }
+            if (!inside)
+            {
+                destination = _dragOriginalRow;
+                insertion = _dragOriginalIndex;
+            }
+            for (int row = _rows.Count - 1; row >= 0; row--)
+                if (_rows[row].Count == 0) _rows.RemoveAt(row);
+            if (gap >= 0 && inside)
+            {
+                destination = new List<Card>();
+                int rowIndex = successor == null ? Math.Min(gap, _rows.Count) : _rows.IndexOf(successor);
+                if (rowIndex < 0) rowIndex = Math.Min(gap, _rows.Count);
+                _rows.Insert(rowIndex, destination);
+                insertion = 0;
+            }
+            else if (destination == null)
+            {
+                destination = _dragOriginalRow ?? new List<Card>();
+            }
+            if (!_rows.Contains(destination))
+            {
+                int rowIndex = inside ? _rows.Count :
+                    Math.Min(_dragOriginalRowIndex, _rows.Count);
+                _rows.Insert(rowIndex, destination);
+            }
+            destination.Insert(Math.Min(insertion, destination.Count), dragged);
             _placeholderCard = null;
+            _cardGapIndex = -1;
             _placeholderRect.gameObject.SetActive(false);
             dragged.Group.alpha = 1f;
             dragged.DragFrame.SetActive(false);
             LayoutRows();
+            if (inside)
+            {
+                SetStatus(gap >= 0 ? UiTextKey.CreatedRow : UiTextKey.MovedRecipe, dragged.Recipe.Name);
+                _logger.LogInfo(Status);
+                RecordCustomLayout();
+            }
         }
-
         private void MovePlaceholder(Vector2 local)
         {
             if (_placeholderCard == null) return;
@@ -633,6 +950,236 @@ namespace Overcooked2RecipePreview
             return _rows.Count;
         }
 
+        private void SetStatus(UiTextKey key, params object[] values)
+        {
+            _statusKey = key;
+            _statusValues = values;
+        }
+
+        private List<List<string>> SnapshotRows()
+        {
+            List<List<string>> snapshot = new List<List<string>>();
+            for (int i = 0; i < _rows.Count; i++)
+            {
+                List<string> ids = new List<string>();
+                for (int j = 0; j < _rows[i].Count; j++)
+                    ids.Add(_rows[i][j].LayoutId);
+                if (ids.Count > 0) snapshot.Add(ids);
+            }
+            return snapshot;
+        }
+
+        private bool ApplyStoredLayout(List<List<string>> savedRows, string savedName)
+        {
+            if (savedRows == null || savedRows.Count == 0) return false;
+            Dictionary<string, Card> byId = new Dictionary<string, Card>();
+            for (int i = 0; i < _cards.Count; i++) byId[_cards[i].LayoutId] = _cards[i];
+            HashSet<Card> used = new HashSet<Card>();
+            List<List<Card>> restored = new List<List<Card>>();
+            for (int i = 0; i < savedRows.Count; i++)
+            {
+                List<Card> row = new List<Card>();
+                for (int j = 0; j < savedRows[i].Count; j++)
+                {
+                    Card card;
+                    if (byId.TryGetValue(savedRows[i][j], out card) && used.Add(card))
+                        row.Add(card);
+                }
+                if (row.Count > 0) restored.Add(row);
+            }
+            if (used.Count == 0) return false;
+            List<Card> added = new List<Card>();
+            for (int i = 0; i < _cards.Count; i++)
+                if (!used.Contains(_cards[i])) added.Add(_cards[i]);
+            if (added.Count > 0)
+            {
+                BuildRows(added);
+                restored.AddRange(_rows);
+            }
+            _rows.Clear();
+            _rows.AddRange(restored);
+            LayoutRows();
+            SetScroll(0f, 0f);
+            _usingBuiltInPreset = false;
+            _activeSavedLayout = savedName;
+            _usingDraft = savedName == null;
+
+            if (savedName == null) SetStatus(UiTextKey.RestoreDraft, _rows.Count);
+            else SetStatus(UiTextKey.LoadedSaved, savedName, _rows.Count);
+            _logger.LogInfo(Status);
+            return true;
+        }
+
+        internal void ApplyDraftLayout()
+        {
+            if (!_ready || _exporting || Dragging) return;
+            if (_layoutStore == null || !ApplyStoredLayout(_layoutStore.ReadDraft(), null))
+                SetStatus(UiTextKey.NoDraft);
+        }
+
+        internal void ApplySavedLayout(string name)
+        {
+            if (!_ready || _exporting || Dragging) return;
+            if (_layoutStore == null || !ApplyStoredLayout(_layoutStore.ReadSaved(name), name))
+                SetStatus(UiTextKey.SavedUnavailable);
+        }
+
+        internal void SaveCurrentLayout()
+        {
+            if (!_ready || _exporting || Dragging) return;
+            if (_layoutStore == null)
+            {
+                SetStatus(UiTextKey.StorageUnavailable);
+                return;
+            }
+            try
+            {
+                string name = _layoutStore.SaveNamed(SnapshotRows());
+                SetStatus(UiTextKey.SavedLayout, name);
+                _logger.LogInfo(Status + " File: " + _layoutStore.Path);
+            }
+            catch (Exception exception)
+            {
+                SetStatus(UiTextKey.SaveFailed);
+                _logger.LogError("Recipe layout save failed: " + exception);
+            }
+        }
+
+        internal void DeleteSavedLayout(string name)
+        {
+            if (!_ready || _exporting || Dragging || _layoutStore == null) return;
+            try
+            {
+                if (!_layoutStore.DeleteSaved(name))
+                {
+                    SetStatus(UiTextKey.SavedUnavailable);
+                    return;
+                }
+                if (_activeSavedLayout == name)
+                {
+                    _activeSavedLayout = null;
+                    _usingBuiltInPreset = false;
+                }
+                SetStatus(UiTextKey.DeletedLayout, name);
+                _logger.LogInfo(Status);
+            }
+            catch (Exception exception)
+            {
+                SetStatus(UiTextKey.DeleteFailed);
+                _logger.LogError("Recipe layout delete failed: " + exception);
+            }
+        }
+
+        private void RecordCustomLayout()
+        {
+            _usingBuiltInPreset = false;
+            _usingDraft = true;
+            _activeSavedLayout = null;
+            try
+            {
+                if (_layoutStore == null)
+                {
+                    SetStatus(UiTextKey.SessionOnly);
+                    return;
+                }
+                _layoutStore.SaveDraft(SnapshotRows());
+                _logger.LogInfo("Updated custom recipe layout: " + _layoutStore.Path);
+            }
+            catch (Exception exception)
+            {
+                SetStatus(UiTextKey.AutoSaveFailed);
+                _logger.LogError("Recipe layout auto-save failed: " + exception);
+            }
+        }
+        internal void ApplySortPreset(SortPreset next)
+        {
+            if (!_ready || _exporting || Dragging) return;
+            List<List<Card>> previousRows = new List<List<Card>>();
+            for (int i = 0; i < _rows.Count; i++)
+                previousRows.Add(new List<Card>(_rows[i]));
+            try
+            {
+                if (next == SortPreset.Original)
+                {
+                    BuildRows(_cards);
+                }
+                else if (next == SortPreset.AutoArrange)
+                {
+                    AutoArrange();
+                }
+                else if (next == SortPreset.Name)
+                {
+                    List<Card> ordered = new List<Card>(_cards);
+                    ordered.Sort(delegate(Card a, Card b)
+                    {
+                        int byName = StringComparer.OrdinalIgnoreCase.Compare(
+                            a.Recipe.Name, b.Recipe.Name);
+                        return byName != 0 ? byName :
+                            a.OriginalIndex.CompareTo(b.OriginalIndex);
+                    });
+                    BuildRows(ordered);
+                }
+                else
+                {
+                    Dictionary<Card, string> categories = new Dictionary<Card, string>();
+                    RecipeSortMetadata metadata = new RecipeSortMetadata(_logger);
+                    for (int i = 0; i < _cards.Count; i++)
+                    {
+                        Card card = _cards[i];
+                        string category = metadata.CookwareFor(card.Recipe.Node);
+                        categories.Add(card, category);
+                        _logger.LogInfo("Recipe sort " + next + ": " +
+                            card.Recipe.Name + " | uid=" + card.Recipe.UniqueId +
+                            " | group=" + category);
+                    }
+                    BuildCategoryRows(categories);
+                }
+
+                LayoutRows();
+                SetScroll(0f, 0f);
+                _selectedPreset = next;
+                _usingBuiltInPreset = true;
+                _usingDraft = false;
+                _activeSavedLayout = null;
+
+
+                SetStatus(UiTextKey.PresetApplied, next, _rows.Count);
+                _logger.LogInfo(Status);
+            }
+            catch (Exception exception)
+            {
+                _rows.Clear();
+                _rows.AddRange(previousRows);
+                LayoutRows();
+                SetStatus(UiTextKey.SortFailed);
+                _logger.LogError("Recipe sort preset failed: " + exception);
+            }
+        }
+
+        private void BuildCategoryRows(Dictionary<Card, string> categories)
+        {
+            Dictionary<string, List<Card>> groups = new Dictionary<string, List<Card>>();
+            for (int i = 0; i < _cards.Count; i++)
+            {
+                Card card = _cards[i];
+                string category = categories[card];
+                List<Card> group;
+                if (!groups.TryGetValue(category, out group))
+                {
+                    group = new List<Card>();
+                    groups.Add(category, group);
+                }
+                group.Add(card);
+            }
+
+            List<string> names = new List<string>(groups.Keys);
+            names.Sort(StringComparer.OrdinalIgnoreCase);
+            if (names.Remove("No cooking step")) names.Add("No cooking step");
+            if (names.Remove("Unmapped cookware")) names.Add("Unmapped cookware");
+            _rows.Clear();
+            for (int i = 0; i < names.Count; i++) _rows.Add(groups[names[i]]);
+        }
+
         internal void AutoArrange()
         {
             if (!_ready || _exporting) return;
@@ -654,8 +1201,9 @@ namespace Overcooked2RecipePreview
             for (int i = 0; i < keys.Count; i++) _rows.Add(groups[keys[i]]);
             LayoutRows();
             SetScroll(0f, 0f);
-            _status = "Grouped " + _cards.Count + " recipes into " + _rows.Count + " categories.";
-            _logger.LogInfo(_status);
+
+            SetStatus(UiTextKey.Grouped, _cards.Count, _rows.Count);
+            _logger.LogInfo(Status);
         }
 
         private static string Classify(string name)
@@ -684,40 +1232,74 @@ namespace Overcooked2RecipePreview
             return n.Length == 0 ? "Other" : n;
         }
 
+        internal void ZoomWheel(float wheelDelta, Vector2 screenPoint)
+        {
+            if (!_ready || _exporting || Dragging || _root == null) return;
+            float next = Mathf.Clamp(_zoom * Mathf.Pow(1.1f, wheelDelta), MinZoom, MaxZoom);
+            if (Math.Abs(next - _zoom) < 0.0001f) return;
+            if (_needsExtentRefresh) RefreshContentExtent();
+            Vector2 anchor = new Vector2(_viewportWidth * 0.5f, _viewportHeight * 0.5f);
+            Vector2 local;
+            if (RectTransformUtility.RectangleContainsScreenPoint(_viewport, screenPoint, null) &&
+                RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                    _viewport, screenPoint, null, out local))
+                anchor = new Vector2(local.x - _viewport.rect.xMin,
+                    _viewport.rect.yMax - local.y);
+            // Scroll offsets are viewport units; card positions stay in unscaled content units.
+            float targetX = (_scrollX + anchor.x) / _zoom * next - anchor.x;
+            float targetY = (_scrollY + anchor.y) / _zoom * next - anchor.y;
+            _zoom = next;
+            s_lastZoom = next;
+            _content.localScale = new Vector3(next, next, 1f);
+            RefreshContentExtent();
+            SetScroll(targetX, targetY);
+            SetStatus(UiTextKey.Zoom, Mathf.RoundToInt(_zoom * 100f));
+        }
+
         internal void ScrollWheel(float wheelDelta, bool horizontal)
         {
+            if (!_ready || _exporting) return;
             if (horizontal) SetScroll(_scrollX - wheelDelta * ScrollStep, _scrollY);
             else SetScroll(_scrollX, _scrollY - wheelDelta * ScrollStep);
         }
 
         internal void ScrollPage(int direction)
         {
+            if (!_ready || _exporting) return;
             SetScroll(_scrollX, _scrollY + direction * _viewportHeight * 0.8f);
         }
 
         internal void SetScroll(float x, float y)
         {
-            _scrollX = Mathf.Clamp(x, 0f, Math.Max(0f, _contentWidth - _viewportWidth));
-            _scrollY = Mathf.Clamp(y, 0f, Math.Max(0f, _contentHeight - _viewportHeight));
+            _scrollX = Mathf.Clamp(x, 0f, Math.Max(0f, ContentWidth - _viewportWidth));
+            _scrollY = Mathf.Clamp(y, 0f, Math.Max(0f, ContentHeight - _viewportHeight));
             if (_content != null)
                 _content.anchoredPosition = new Vector2(-_scrollX, _scrollY);
+            if (_ready) UpdateChrome(Input.mousePosition);
         }
 
         internal IEnumerator ExportPng(string path)
         {
-            if (!_ready || _exporting || _dragged != null) yield break;
+            if (!_ready || _exporting || Dragging) yield break;
             _exporting = true;
-            _status = "Rendering original order cards...";
+            SetStatus(UiTextKey.Rendering);
 
             Color oldShade = _shade.color;
+            Color oldViewport = _viewportImage.color;
             Vector2 oldContentPosition = _content.anchoredPosition;
+            Vector3 oldContentScale = _content.localScale;
             RectMask2D mask = _viewport.GetComponent<RectMask2D>();
             bool oldMask = mask.enabled;
             Vector2[] oldPositions = new Vector2[_cards.Count];
             for (int i = 0; i < _cards.Count; i++) oldPositions[i] = _cards[i].Rect.anchoredPosition;
 
             _shade.color = new Color(0.92f, 0.89f, 0.82f, 1f);
+            _viewportImage.color = _shade.color;
+            _handleLayer.gameObject.SetActive(false);
+            for (int i = 0; i < _rowPanels.Count; i++)
+                _rowPanels[i].gameObject.SetActive(false);
             mask.enabled = false;
+            _content.localScale = Vector3.one;
             _content.anchoredPosition = Vector2.zero;
             for (int i = 0; i < _cards.Count; i++) _cards[i].Group.alpha = 0f;
             Canvas.ForceUpdateCanvases();
@@ -733,14 +1315,14 @@ namespace Overcooked2RecipePreview
             List<CardCapture> captures = new List<CardCapture>();
             bool failed = outputWidth < 1 || outputHeight < 1 || outputWidth > 12000 ||
                 outputHeight > 100000 || (long)outputWidth * outputHeight > 200000000L;
-            if (failed) _status = "Board dimensions are too large to export safely.";
+            if (failed) SetStatus(UiTextKey.ExportTooLarge);
 
             for (int i = 0; i < _cards.Count && !failed; i++)
             {
                 Card card = _cards[i];
                 card.Group.alpha = 1f;
                 card.Rect.anchoredPosition = new Vector2(40f - card.MinX, -40f - card.MaxY);
-                _status = "Rendering card " + (i + 1) + "/" + _cards.Count + "...";
+                SetStatus(UiTextKey.RenderingCard, i + 1, _cards.Count);
                 yield return null;
                 Canvas.ForceUpdateCanvases();
                 yield return new WaitForEndOfFrame();
@@ -751,7 +1333,7 @@ namespace Overcooked2RecipePreview
                 catch (Exception exception)
                 {
                     _logger.LogError("Could not capture original recipe card " + card.Recipe.Name + ": " + exception);
-                    _status = "Image export failed. See BepInEx log.";
+                    SetStatus(UiTextKey.ExportFailed);
                     failed = true;
                 }
                 card.Group.alpha = 0f;
@@ -764,6 +1346,11 @@ namespace Overcooked2RecipePreview
             }
             mask.enabled = oldMask;
             _shade.color = oldShade;
+            _viewportImage.color = oldViewport;
+            _handleLayer.gameObject.SetActive(true);
+            for (int i = 0; i < _rowPanels.Count; i++)
+                _rowPanels[i].gameObject.SetActive(i < _rows.Count);
+            _content.localScale = oldContentScale;
             _content.anchoredPosition = oldContentPosition;
             Canvas.ForceUpdateCanvases();
 
@@ -771,7 +1358,7 @@ namespace Overcooked2RecipePreview
             {
                 try
                 {
-                    _status = "Saving full-length PNG...";
+                    SetStatus(UiTextKey.SavingPng);
                     PngStreamWriter.Save(path, outputWidth, outputHeight,
                         delegate(int y, byte[] row) { FillExportScanline(y, row, outputWidth, captures); });
                     int clipboardWidth, clipboardHeight;
@@ -780,15 +1367,13 @@ namespace Overcooked2RecipePreview
                     string clipboardError;
                     bool copied = ClipboardImage.Copy(
                         clipboard, clipboardWidth, clipboardHeight, out clipboardError);
-                    _status = copied
-                        ? "Saved full PNG and copied image: " + path
-                        : "Saved full PNG (clipboard unavailable): " + path;
-                    _logger.LogInfo(_status + " (" + outputWidth + "x" + outputHeight + ")");
+                    SetStatus(copied ? UiTextKey.PngCopied : UiTextKey.PngNoClipboard, path);
+                    _logger.LogInfo(Status + " (" + outputWidth + "x" + outputHeight + ")");
                     if (!copied) _logger.LogWarning("Clipboard copy failed: " + clipboardError);
                 }
                 catch (Exception exception)
                 {
-                    _status = "PNG save failed. See BepInEx log.";
+                    SetStatus(UiTextKey.PngFailed);
                     _logger.LogError("Recipe board export failed: " + exception);
                 }
             }
