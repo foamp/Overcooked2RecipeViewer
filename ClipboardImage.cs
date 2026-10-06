@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using UnityEngine;
 
-namespace Overcooked2RecipePreview
+namespace Overcooked2RecipeViewer
 {
     // Windows clipboard CF_DIB; the exported pixels are already opaque and
     // arranged bottom-up, matching a positive-height BITMAPINFOHEADER.

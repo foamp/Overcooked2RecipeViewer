@@ -1,7 +1,7 @@
 using System;
 using BepInEx.Logging;
 
-namespace Overcooked2RecipePreview
+namespace Overcooked2RecipeViewer
 {
     internal enum UiTextKey
     {

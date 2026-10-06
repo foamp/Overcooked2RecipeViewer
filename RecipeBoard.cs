@@ -8,7 +8,7 @@ using HarmonyLib;
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace Overcooked2RecipePreview
+namespace Overcooked2RecipeViewer
 {
     // Uses the game's original order widgets, but never adds preview cards to
     // RecipeFlowGUI's live order list.
@@ -141,7 +141,7 @@ namespace Overcooked2RecipePreview
                     ? null : prefabField.GetValue(flow) as RecipeWidgetUIController;
                 if (prefab == null) throw new InvalidOperationException("Original order-card prefab was not found.");
 
-                _root = new GameObject("RecipePreview_Board", typeof(RectTransform),
+                _root = new GameObject("RecipeViewer_Board", typeof(RectTransform),
                     typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
                 _canvas = _root.GetComponent<Canvas>();
                 _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -211,7 +211,7 @@ namespace Overcooked2RecipePreview
                 for (int i = 0; i < recipes.Count; i++)
                 {
                     GameObject clone = GameUtils.InstantiateUIController(prefab.gameObject, _content);
-                    clone.name = "RecipePreview_" + recipes[i].Name;
+                    clone.name = "RecipeViewer_" + recipes[i].Name;
                     RectTransformExtension extension = clone.GetComponent<RectTransformExtension>();
                     if (extension != null) extension.enabled = false;
                     RectTransform rect = clone.GetComponent<RectTransform>();

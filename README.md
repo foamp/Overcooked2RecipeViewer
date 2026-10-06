@@ -33,7 +33,7 @@
 
 安装 BepInEx 5 后，从 [最新 Release 下载 ZIP 压缩包](https://github.com/foamp/Overcooked2RecipeViewer/releases/latest)，解压后将 `Overcooked2RecipeViewer.dll` 放入游戏的 `BepInEx\plugins` 文件夹。
 
-进入厨房关卡后即可打开查看器，使用工具栏选择排序方式、保存布局和导出图片。
+进入厨房关卡后即可打开查看器，使用工具栏选择排序方式、保存布局和导出图片。配置管理器中的插件名称为 **Overcooked2RecipeViewer**。
 
 ## 快捷操作
 
@@ -87,7 +87,7 @@ The GIF above shows the in-game viewer and PNG exports using existing screenshot
 
 Install BepInEx 5, [download the ZIP archive from the latest release](https://github.com/foamp/Overcooked2RecipeViewer/releases/latest), extract it, and place `Overcooked2RecipeViewer.dll` in the game's `BepInEx\plugins` folder.
 
-Enter a kitchen level to open the viewer. Use its toolbar to choose a sorting preset, save layouts, and export images.
+Enter a kitchen level to open the viewer. Use its toolbar to choose a sorting preset, save layouts, and export images. In Configuration Manager, the plugin is listed as **Overcooked2RecipeViewer**.
 
 ### Controls
 

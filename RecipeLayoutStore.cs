@@ -4,7 +4,7 @@ using System.IO;
 using System.Text;
 using BepInEx.Logging;
 
-namespace Overcooked2RecipePreview
+namespace Overcooked2RecipeViewer
 {
     // Uses only mscorlib so the game's older Mono runtime needs no extra DLLs.
     internal sealed class RecipeLayoutStore
@@ -45,6 +45,7 @@ namespace Overcooked2RecipePreview
                 string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
                 if (string.IsNullOrEmpty(appData))
                     appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                // Keep existing users' saved layouts without changing their storage location.
                 _path = System.IO.Path.Combine(appData,
                     System.IO.Path.Combine("Overcooked2RecipePreview", "layouts.txt"));
             }

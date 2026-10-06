@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.IO.Compression;
 
-namespace Overcooked2RecipePreview
+namespace Overcooked2RecipeViewer
 {
     // Writes PNG scanlines without allocating a full-height Texture2D. This
     // allows a recipe board taller than the GPU's maximum texture dimension.

@@ -5,7 +5,7 @@ using BepInEx.Logging;
 using HarmonyLib;
 using UnityEngine;
 
-namespace Overcooked2RecipePreview
+namespace Overcooked2RecipeViewer
 {
     // CookingStepData assets in the game's resources name the actual utensil.
     // Scene station types are only a fallback for unknown/modded step assets.

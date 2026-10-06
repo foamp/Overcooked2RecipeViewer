@@ -8,16 +8,17 @@ using BepInEx.Logging;
 using HarmonyLib;
 using UnityEngine;
 
-namespace Overcooked2RecipePreview
+namespace Overcooked2RecipeViewer
 {
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
-    public sealed class RecipePreviewPlugin : BaseUnityPlugin
+    public sealed class RecipeViewerPlugin : BaseUnityPlugin
     {
+        // Keep the existing config file and Harmony identity compatible.
         public const string PluginGuid = "io.github.overcooked2.recipepreview";
         public const string PluginName = "Overcooked2RecipeViewer";
         public const string PluginVersion = "0.8.3";
 
-        private static RecipePreviewPlugin s_instance;
+        private static RecipeViewerPlugin s_instance;
 
         private Harmony _harmony;
         private ConfigEntry<KeyboardShortcut> _toggleShortcut;
@@ -45,7 +46,7 @@ namespace Overcooked2RecipePreview
         private GUIStyle _statusStyle;
         private readonly List<Texture2D> _uiTextures = new List<Texture2D>();
 
-        internal static RecipePreviewPlugin Instance
+        internal static RecipeViewerPlugin Instance
         {
             get { return s_instance; }
         }
@@ -680,7 +681,7 @@ namespace Overcooked2RecipePreview
 
         private static void Prefix(object[] __args)
         {
-            RecipePreviewPlugin plugin = RecipePreviewPlugin.Instance;
+            RecipeViewerPlugin plugin = RecipeViewerPlugin.Instance;
             if (plugin == null || __args == null || __args.Length < 4)
             {
                 return;
@@ -730,7 +731,7 @@ namespace Overcooked2RecipePreview
 
         private static void Prefix(object[] __args)
         {
-            RecipePreviewPlugin plugin = RecipePreviewPlugin.Instance;
+            RecipeViewerPlugin plugin = RecipeViewerPlugin.Instance;
             if (plugin == null || __args == null || __args.Length < 1)
             {
                 return;
