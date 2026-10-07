@@ -17,7 +17,7 @@
 ## 兼容要求
 
 - Windows / Steam 版 **Overcooked! 2**（Mono）。
-- **BepInEx 5**。
+- **BepInEx 5**（[官方下载](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.2) · [官方安装说明](https://docs.bepinex.dev/articles/user_guide/installation/index.html)）。
 - 当前本地构建环境：Steam Build ID `20236421`，BepInEx `5.4.23.1`。
 
 ## 功能
@@ -31,7 +31,9 @@
 
 ## 使用
 
-安装 BepInEx 5 后，从 [最新 Release 下载 ZIP 压缩包](https://github.com/foamp/Overcooked2RecipeViewer/releases/latest)，解压后将 `Overcooked2RecipeViewer.dll` 放入游戏的 `BepInEx\plugins` 文件夹。
+安装 BepInEx 5 后，从 [最新 Release 下载 ZIP 压缩包](https://github.com/foamp/Overcooked2RecipeViewer/releases/latest)，解压后推荐放在游戏目录下的 `BepInEx\plugins\Overcooked2RecipeViewer\Overcooked2RecipeViewer.dll`。
+
+BepInEx 会扫描 `plugins` 及其子目录；本项目推荐使用独立的 `Overcooked2RecipeViewer` 文件夹，方便管理。
 
 进入厨房关卡后即可打开查看器，使用工具栏选择排序方式、保存布局和导出图片。配置管理器中的插件名称为 **Overcooked2RecipeViewer**。
 
@@ -49,6 +51,10 @@
 ## 问题反馈
 
 遇到问题请前往 [Issues](https://github.com/foamp/Overcooked2RecipeViewer/issues)，附上游戏与 Mod 版本、关卡及人数、复现步骤，以及 `BepInEx\LogOutput.log` 中的相关日志；界面问题可附截图。
+
+## 开发
+
+构建与开发说明请参阅 [开发指南](docs/DEVELOPMENT.md)。
 
 ## 致谢
 
@@ -71,7 +77,7 @@ The GIF above shows the in-game viewer and PNG exports using existing screenshot
 ### Requirements
 
 - **Overcooked! 2** for Windows / Steam (Mono).
-- **BepInEx 5**.
+- **BepInEx 5** ([official download](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.2) · [official installation guide](https://docs.bepinex.dev/articles/user_guide/installation/index.html)).
 - Current local build environment: Steam Build ID `20236421`, BepInEx `5.4.23.1`.
 
 ### Features
@@ -85,7 +91,9 @@ The GIF above shows the in-game viewer and PNG exports using existing screenshot
 
 ### Usage
 
-Install BepInEx 5, [download the ZIP archive from the latest release](https://github.com/foamp/Overcooked2RecipeViewer/releases/latest), extract it, and place `Overcooked2RecipeViewer.dll` in the game's `BepInEx\plugins` folder.
+Install BepInEx 5, [download the ZIP archive from the latest release](https://github.com/foamp/Overcooked2RecipeViewer/releases/latest), and extract the DLL to the recommended location under the game directory: `BepInEx\plugins\Overcooked2RecipeViewer\Overcooked2RecipeViewer.dll`.
+
+BepInEx scans `plugins` and its subdirectories; a separate `Overcooked2RecipeViewer` folder keeps this mod easy to manage.
 
 Enter a kitchen level to open the viewer. Use its toolbar to choose a sorting preset, save layouts, and export images. In Configuration Manager, the plugin is listed as **Overcooked2RecipeViewer**.
 
@@ -103,6 +111,10 @@ Enter a kitchen level to open the viewer. Use its toolbar to choose a sorting pr
 ### Bug reports
 
 Please open an [Issue](https://github.com/foamp/Overcooked2RecipeViewer/issues) with your game and mod versions, level and player count, reproduction steps, and relevant entries from `BepInEx\LogOutput.log`. Include a screenshot for visual issues.
+
+### Development
+
+See the [Development Guide](docs/DEVELOPMENT.md) for build and development instructions.
 
 ### Acknowledgements
 
