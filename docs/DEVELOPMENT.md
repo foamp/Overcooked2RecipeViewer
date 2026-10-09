@@ -167,14 +167,17 @@ Unity native rendering or modify the live clipboard. Python/Pillow independently
 checks PNG CRC/zlib/RGBA pixels, preview parity and long-image completion.
 Fixtures and test binaries stay under ignored `artifacts` directories.
 
-`package.ps1` verifies DLL versions against `PluginVersion`, creates a ZIP with
-exactly one root DLL and writes SHA256SUMS.txt. It performs no deployment, Git
-mutation or network operation, and refuses to overwrite an existing package.
+`package.ps1` verifies DLL versions against `PluginVersion` and writes
+SHA256SUMS.txt for the DLL, ready for direct release download. The optional
+`-Zip` switch retains local one-DLL archive preparation and writes its checksum;
+it refuses to overwrite an existing archive. Neither mode deploys, changes Git
+or performs network operations.
 See [runtime acceptance](TESTING-v0.9.0.md) and [release notes](RELEASE_NOTES-v0.9.0.md).
 With explicit publishing authorization, commit the reviewed source/docs,
 tag that commit `v0.9.0`, push, and create a **new** release
-using these notes plus the ZIP/checksum. Preserve `v0.8.3` and every existing tag;
-upload no bare DLL, game assemblies, test fixtures or intermediate binaries.
+using these notes plus `Overcooked2RecipeViewer.dll` and its checksum. Preserve
+`v0.8.3` and every existing tag; upload no game assemblies, test fixtures or
+intermediate binaries.
 
 ## Installation and deployment
 

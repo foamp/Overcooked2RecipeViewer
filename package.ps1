@@ -1,4 +1,5 @@
 # Local package preparation only. Never deploys, tags, pushes or publishes.
+param([switch]$Zip)
 $ErrorActionPreference = 'Stop'
 $taskArtifactDirectory = Join-Path $PSScriptRoot 'artifacts'
 $taskDll = Join-Path $taskArtifactDirectory 'Overcooked2RecipeViewer.dll'
@@ -11,6 +12,13 @@ $taskAssemblyVersion = [Reflection.AssemblyName]::GetAssemblyName($taskDll).Vers
 $taskFileVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($taskDll)
 if ($taskAssemblyVersion -ne ($taskVersion + '.0') -or $taskFileVersion.FileVersion -ne ($taskVersion + '.0') -or $taskFileVersion.ProductVersion -ne $taskVersion) {
     throw 'DLL and source versions differ. Rebuild before packaging.'
+}
+if (-not $Zip) {
+    $taskDllHash = (Get-FileHash -LiteralPath $taskDll -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText((Join-Path $taskArtifactDirectory 'SHA256SUMS.txt'), "$taskDllHash  Overcooked2RecipeViewer.dll`n", (New-Object Text.UTF8Encoding($false)))
+    Write-Host "Prepared: $taskDll"
+    Write-Host "SHA256: $taskDllHash"
+    return
 }
 $taskZipName = "Overcooked2RecipeViewer-v$taskVersion.zip"
 $taskZipPath = Join-Path $taskArtifactDirectory $taskZipName

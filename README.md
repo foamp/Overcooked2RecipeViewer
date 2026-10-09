@@ -8,7 +8,7 @@
 
 一个基于 BepInEx 的《胡闹厨房 2》（Overcooked! 2）菜谱查看 Mod。使用游戏原版菜谱卡片展示当前关卡的全部可用菜谱，方便提前查看、整理和分享。
 
-**当前版本：[v0.9.0](https://github.com/foamp/Overcooked2RecipeViewer/releases/tag/v0.9.0) · [下载 ZIP 压缩包](https://github.com/foamp/Overcooked2RecipeViewer/releases/download/v0.9.0/Overcooked2RecipeViewer-v0.9.0.zip)**
+**当前版本：[v0.9.0](https://github.com/foamp/Overcooked2RecipeViewer/releases/tag/v0.9.0) · [下载 DLL](https://github.com/foamp/Overcooked2RecipeViewer/releases/download/v0.9.0/Overcooked2RecipeViewer.dll)**
 
 **这是菜谱查看、排列和分享工具，仅调整查看器中的显示与布局，不改变游戏实际订单、订单生成逻辑、出菜顺序、计时或得分。**
 
@@ -37,7 +37,7 @@
 
 ## 使用
 
-安装 BepInEx 5 后，从 [最新 Release 下载 ZIP 压缩包](https://github.com/foamp/Overcooked2RecipeViewer/releases/latest)，解压后推荐放在游戏目录下的 `BepInEx\plugins\Overcooked2RecipeViewer\Overcooked2RecipeViewer.dll`。
+安装 BepInEx 5 后，从 [最新 Release 下载 DLL](https://github.com/foamp/Overcooked2RecipeViewer/releases/latest)，推荐放在游戏目录下的 `BepInEx\plugins\Overcooked2RecipeViewer\Overcooked2RecipeViewer.dll`。
 
 BepInEx 会扫描 `plugins` 及其子目录；本项目推荐使用独立的 `Overcooked2RecipeViewer` 文件夹，方便管理。
 
@@ -80,7 +80,7 @@ v0.9.0 中点击「导出图片」会打开预览。调整背景、图片排版�
 
 A BepInEx mod for **Overcooked! 2** that displays all available recipes in the current level using the game's original recipe cards. Preview, arrange, and share your recipe board.
 
-**Current release: [v0.9.0](https://github.com/foamp/Overcooked2RecipeViewer/releases/tag/v0.9.0) · [Download ZIP](https://github.com/foamp/Overcooked2RecipeViewer/releases/download/v0.9.0/Overcooked2RecipeViewer-v0.9.0.zip)**
+**Current release: [v0.9.0](https://github.com/foamp/Overcooked2RecipeViewer/releases/tag/v0.9.0) · [Download DLL](https://github.com/foamp/Overcooked2RecipeViewer/releases/download/v0.9.0/Overcooked2RecipeViewer.dll)**
 
 **This is a recipe viewing, arrangement, and sharing tool. It only changes the viewer's display and layout; it does not change actual orders, order generation, serving order, timers, or scoring.**
 
@@ -107,7 +107,7 @@ The GIF above shows the in-game viewer and PNG exports using existing screenshot
 
 ### Usage
 
-Install BepInEx 5, [download the ZIP archive from the latest release](https://github.com/foamp/Overcooked2RecipeViewer/releases/latest), and extract the DLL to the recommended location under the game directory: `BepInEx\plugins\Overcooked2RecipeViewer\Overcooked2RecipeViewer.dll`.
+Install BepInEx 5, [download the DLL from the latest release](https://github.com/foamp/Overcooked2RecipeViewer/releases/latest), and copy it to the recommended location under the game directory: `BepInEx\plugins\Overcooked2RecipeViewer\Overcooked2RecipeViewer.dll`.
 
 BepInEx scans `plugins` and its subdirectories; a separate `Overcooked2RecipeViewer` folder keeps this mod easy to manage.
 

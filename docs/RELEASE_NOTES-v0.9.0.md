@@ -10,7 +10,7 @@
 - 新增 50%–200% 界面缩放及厨房绿、奶油白、深海蓝、炭灰四种配色；导出与界面设置自动记忆。
 - 沿用 BepInEx 5、原插件 GUID、快捷键、配置及布局存储路径。不修改游戏实际订单、计时或得分。
 
-安装前关闭游戏，用 ZIP 中唯一的 DLL 替换现有 Viewer DLL，保留配置与布局，避免重复安装。进入关卡按 Insert，选择「导出图片」打开预览。超大图片的剪贴板副本会缩小并提示尺寸；PNG 保持完整分辨率。1x 沿用原版素材，不提供额外的高清素材细节。
+安装前关闭游戏，下载 `Overcooked2RecipeViewer.dll` 替换现有 Viewer DLL，保留配置与布局，避免重复安装。进入关卡按 Insert，选择「导出图片」打开预览。超大图片的剪贴板副本会缩小并提示尺寸；PNG 保持完整分辨率。1x 沿用原版素材，不提供额外的高清素材细节。
 
 ## English
 
@@ -27,7 +27,7 @@ v0.9.0 introduces a full-image export preview. Check the complete recipe board, 
 
 ### Install and use
 
-Close the game, extract the single DLL from **Overcooked2RecipeViewer-v0.9.0.zip**, and replace the existing Viewer DLL under `BepInEx\plugins`. Keep only one copy of the mod and retain your configuration and layouts. Requires Overcooked! 2 for Windows / Steam and BepInEx 5.
+Close the game, download **Overcooked2RecipeViewer.dll**, and replace the existing Viewer DLL under `BepInEx\plugins`. Keep only one copy of the mod and retain your configuration and layouts. Requires Overcooked! 2 for Windows / Steam and BepInEx 5.
 
 Press **Insert → Export image**, adjust the preview, then choose **Export image** or **Copy image**. PNGs are saved in `BepInEx\RecipePreviewExports`. Interface settings are available in the toolbar and preview header.
 

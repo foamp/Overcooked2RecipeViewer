@@ -80,6 +80,8 @@ GUID `io.github.overcooked2.recipepreview`、快捷键键名、配置路径、�
 
 ## 正式发布流程
 
+2026-10-10 发布附件调整：按用户要求，v0.9.0 改为直接提供 `Overcooked2RecipeViewer.dll` 与对应 `SHA256SUMS.txt`，移除该版本的 ZIP 附件。DLL 内容与上述构建一致，源码标签不变；README、中英文安装说明及本地发布准备脚本同步改为 DLL。下列 ZIP 检查与首次发布流程保留为历史记录，v0.8.3 不变。
+
 按用户本次明确授权，将检查通过的源代码、文档及测试提交并快进推送至 main，对该提交创建 `v0.9.0` 标签；新建标题为 **Overcooked2RecipeViewer v0.9.0** 的 Release，采用 [说明文件](RELEASE_NOTES-v0.9.0.md) 中的英文正文，仅上传 ZIP 与 SHA256SUMS.txt，核对附件摘要后设为 Latest 正式版本。完成后检查 main/tag 指向、公开下载/解压/校验和，以及历史 Release 与标签不变。
 
 不强制推送，不覆盖历史 Release，不移动 v0.8.3 标签，不提交二进制、游戏依赖或本地备份。仍未由代理执行的实机项目列于 [验收表](TESTING-v0.9.0.md)，不会以编译成功代替游戏测试结论。
