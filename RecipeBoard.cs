@@ -40,15 +40,11 @@ namespace Overcooked2RecipeViewer
             internal string LayoutId;
         }
 
-        private sealed class CardCapture
-        {
-            internal int Left, Top, Width, Height;
-            internal Color32[] Pixels; // Bottom-up, as returned by Texture2D.GetPixels32().
-        }
-
         private readonly GameObject _root;
         private readonly Canvas _canvas;
         private readonly Image _shade;
+        private readonly RectTransform _toolbar;
+        private readonly Image _toolbarImage;
         private readonly RectTransform _viewport;
         private readonly Image _viewportImage;
         private readonly List<RectTransform> _rowPanels = new List<RectTransform>();
@@ -64,6 +60,9 @@ namespace Overcooked2RecipeViewer
         private readonly List<float> _rowHeights = new List<float>();
         private float _viewportWidth;
         private float _viewportHeight;
+        private UiPalette _uiPalette = UiPalette.Get(UiTheme.Kitchen);
+        private float _chromeScale = 1f, _interfaceTop = -1f, _interfaceBottom = -1f;
+        private int _interfaceWidth, _interfaceHeight;
         private float _contentWidth;
         private float _layoutWidth;
         private float _contentHeight;
@@ -166,6 +165,7 @@ namespace Overcooked2RecipeViewer
                 Image toolbarImage = toolbar.gameObject.AddComponent<Image>();
                 toolbarImage.color = new Color(0.15f, 0.28f, 0.27f, 0.98f);
                 toolbarImage.raycastTarget = false;
+                _toolbar = toolbar; _toolbarImage = toolbarImage;
 
                 _viewport = CreateRect("Viewport", backdrop);
                 Stretch(_viewport, 72f, 52f, 36f, 48f);
@@ -292,9 +292,10 @@ namespace Overcooked2RecipeViewer
             // Native order tiles finish their layout over more than one frame.
             yield return null;
             yield return new WaitForEndOfFrame();
+            if (_root == null) yield break;
             Canvas.ForceUpdateCanvases();
-            _viewportWidth = Math.Max(320f, _viewport.rect.width);
-            _viewportHeight = Math.Max(300f, _viewport.rect.height);
+            _viewportWidth = Math.Max(1f, _viewport.rect.width);
+            _viewportHeight = Math.Max(1f, _viewport.rect.height);
             for (int i = 0; i < _cards.Count; i++)
                 if (_cards[i].Widget != null)
                     centeredDishCount += CenterFinishedDishes(_cards[i].Widget);
@@ -349,13 +350,21 @@ namespace Overcooked2RecipeViewer
                 RectTransform rect = graphics[i].transform as RectTransform;
                 if (rect == null) continue;
                 rect.GetWorldCorners(corners);
+                Shadow[] effects = graphics[i].GetComponents<Shadow>();
+                float effectX = 0f, effectY = 0f;
+                for (int e = 0; e < effects.Length; e++)
+                {
+                    if (!effects[e].enabled) continue;
+                    Vector3 distance = card.Rect.InverseTransformVector(rect.TransformVector(effects[e].effectDistance));
+                    effectX += Math.Abs(distance.x); effectY += Math.Abs(distance.y);
+                }
                 for (int j = 0; j < 4; j++)
                 {
                     Vector3 point = card.Rect.InverseTransformPoint(corners[j]);
-                    minX = Math.Min(minX, point.x);
-                    maxX = Math.Max(maxX, point.x);
-                    minY = Math.Min(minY, point.y);
-                    maxY = Math.Max(maxY, point.y);
+                    minX = Math.Min(minX, point.x - effectX);
+                    maxX = Math.Max(maxX, point.x + effectX);
+                    minY = Math.Min(minY, point.y - effectY);
+                    maxY = Math.Max(maxY, point.y + effectY);
                 }
             }
             // Some order-card artwork extends beyond its Graphic's rectangle.
@@ -551,8 +560,8 @@ namespace Overcooked2RecipeViewer
             _needsExtentRefresh = false;
             if (_dragged != null || _dragRow != null || _exporting || _root == null) return;
             Canvas.ForceUpdateCanvases();
-            _viewportWidth = Math.Max(320f, _viewport.rect.width);
-            _viewportHeight = Math.Max(300f, _viewport.rect.height);
+            _viewportWidth = Math.Max(1f, _viewport.rect.width);
+            _viewportHeight = Math.Max(1f, _viewport.rect.height);
             float actualBottom = 0f;
             float actualRight = 0f;
             Vector3[] corners = new Vector3[4];
@@ -591,6 +600,53 @@ namespace Overcooked2RecipeViewer
                 _contentWidth, _contentHeight));
         }
 
+        // Resize/recolor viewer chrome only. Card transforms, manual rows and
+        // persisted layouts remain independent of interface preferences.
+        internal void ApplyInterface(UiPalette palette, float topPixels, float bottomPixels, float uiScale)
+        {
+            if (!Alive || Dragging || _exporting) return;
+            bool colorsChanged = !ReferenceEquals(palette,_uiPalette);
+            if (colorsChanged)
+            {
+                _uiPalette = palette;
+                _shade.color = RecipeViewerPlugin.UiColor(palette.Background,0.96f);
+                _toolbarImage.color = RecipeViewerPlugin.UiColor(palette.Button,0.98f);
+                _viewportImage.color = RecipeViewerPlugin.UiColor(palette.Panel,0.96f);
+                _viewport.GetComponent<Outline>().effectColor = RecipeViewerPlugin.UiColor(palette.Accent,0.74f);
+                _dropMarker.GetComponent<Image>().color = RecipeViewerPlugin.UiColor(palette.Accent,0.9f);
+                for (int i = 0; i < _rowPanels.Count; i++)
+                {
+                    _rowPanels[i].GetComponent<Image>().color = RecipeViewerPlugin.UiColor(palette.Button,0.92f);
+                    _rowPanels[i].GetComponent<Outline>().effectColor = RecipeViewerPlugin.UiColor(palette.Accent,0.55f);
+                }
+                for (int i = 0; i < _rowHandles.Count; i++)
+                {
+                    Image[] images = _rowHandles[i].GetComponentsInChildren<Image>(true);
+                    for (int j = 0; j < images.Length; j++)
+                        if (images[j].transform != _rowHandles[i]) images[j].color = RecipeViewerPlugin.UiColor(palette.Text,0.95f);
+                }
+            }
+            float canvasScale = Math.Max(0.01f,_canvas.scaleFactor);
+            float scale = uiScale / canvasScale;
+            float top = topPixels / canvasScale, bottom = bottomPixels / canvasScale;
+            bool geometryChanged = Math.Abs(top - _interfaceTop) > 0.01f || Math.Abs(bottom - _interfaceBottom) > 0.01f ||
+                Math.Abs(scale - _chromeScale) > 0.001f || _interfaceWidth != Screen.width || _interfaceHeight != Screen.height;
+            if (geometryChanged)
+            {
+                _chromeScale = scale; _interfaceTop = top; _interfaceBottom = bottom;
+                _interfaceWidth = Screen.width; _interfaceHeight = Screen.height;
+                _toolbar.sizeDelta = new Vector2(0,top);
+                Stretch(_viewport,72 * scale,top + 4 * scale,36 * scale,bottom);
+                _handleLayer.anchoredPosition = new Vector2(21 * scale,-top - 4 * scale);
+                Canvas.ForceUpdateCanvases();
+                _handleLayer.sizeDelta = new Vector2(38 * scale,_viewport.rect.height);
+                for (int i = 0; i < _rowHandles.Count; i++) _rowHandles[i].localScale = new Vector3(scale,scale,1);
+                _viewportWidth = Math.Max(1,_viewport.rect.width); _viewportHeight = Math.Max(1,_viewport.rect.height);
+                if (_ready) RefreshContentExtent();
+            }
+            if (_ready && colorsChanged) UpdateChrome(Input.mousePosition);
+        }
+
         private void EnsureRowPanels()
         {
             while (_rowPanels.Count < _rows.Count)
@@ -600,10 +656,10 @@ namespace Overcooked2RecipeViewer
                 panel.anchorMax = new Vector2(0f, 1f);
                 panel.pivot = new Vector2(0f, 1f);
                 Image image = panel.gameObject.AddComponent<Image>();
-                image.color = new Color(0.14f, 0.27f, 0.26f, 0.92f);
+                image.color = RecipeViewerPlugin.UiColor(_uiPalette.Button,0.92f);
                 image.raycastTarget = false;
                 Outline border = panel.gameObject.AddComponent<Outline>();
-                border.effectColor = new Color(0.60f, 0.46f, 0.25f, 0.55f);
+                border.effectColor = RecipeViewerPlugin.UiColor(_uiPalette.Accent,0.55f);
                 border.effectDistance = new Vector2(2f, 2f);
                 panel.SetAsFirstSibling();
                 _rowPanels.Add(panel);
@@ -620,6 +676,7 @@ namespace Overcooked2RecipeViewer
                 handle.anchorMax = new Vector2(0f, 1f);
                 handle.pivot = new Vector2(0f, 1f);
                 handle.sizeDelta = new Vector2(36f, 38f);
+                handle.localScale = new Vector3(_chromeScale,_chromeScale,1);
                 Image background = handle.gameObject.AddComponent<Image>();
                 background.raycastTarget = false;
                 for (int line = 0; line < 3; line++)
@@ -631,7 +688,7 @@ namespace Overcooked2RecipeViewer
                     grip.anchoredPosition = new Vector2(9f, -11f - line * 7f);
                     grip.sizeDelta = new Vector2(18f, 3f);
                     Image stripe = grip.gameObject.AddComponent<Image>();
-                    stripe.color = new Color(1f, 0.85f, 0.54f, 0.95f);
+                    stripe.color = RecipeViewerPlugin.UiColor(_uiPalette.Text,0.95f);
                     stripe.raycastTarget = false;
                 }
                 _rowHandles.Add(handle);
@@ -648,15 +705,15 @@ namespace Overcooked2RecipeViewer
                 RectTransform handle = _rowHandles[i];
                 if (i >= _rows.Count) { handle.gameObject.SetActive(false); continue; }
                 float y = _rowTops[i] * _zoom - _scrollY + 5f;
-                bool visible = y + 38f > 0f && y < _viewportHeight;
+                bool visible = y + 38f * _chromeScale > 0f && y < _viewportHeight;
                 handle.gameObject.SetActive(visible);
                 if (!visible) continue;
                 handle.anchoredPosition = new Vector2(0f, -y);
                 bool hover = RectTransformUtility.RectangleContainsScreenPoint(handle, mouse, null);
                 handle.GetComponent<Image>().color = _dragRow == _rows[i]
-                    ? new Color(0.61f, 0.37f, 0.12f, 0.95f)
-                    : hover ? new Color(0.35f, 0.28f, 0.17f, 0.94f)
-                    : new Color(0.16f, 0.20f, 0.20f, 0.88f);
+                    ? RecipeViewerPlugin.UiColor(_uiPalette.Selected,0.95f)
+                    : hover ? RecipeViewerPlugin.UiColor(_uiPalette.Hover,0.94f)
+                    : RecipeViewerPlugin.UiColor(_uiPalette.Button,0.88f);
             }
             int insertion = _dragRow != null ? _rowDropIndex : _cardGapIndex;
             if (insertion < 0 || _rows.Count == 0)
@@ -1278,208 +1335,86 @@ namespace Overcooked2RecipeViewer
             if (_ready) UpdateChrome(Input.mousePosition);
         }
 
-        internal IEnumerator ExportPng(string path)
+        internal bool Alive { get { return _root != null; } }
+
+        internal bool CanCaptureExport()
         {
-            if (!_ready || _exporting || Dragging) yield break;
-            _exporting = true;
-            SetStatus(UiTextKey.Rendering);
-
-            Color oldShade = _shade.color;
-            Color oldViewport = _viewportImage.color;
-            Vector2 oldContentPosition = _content.anchoredPosition;
-            Vector3 oldContentScale = _content.localScale;
-            RectMask2D mask = _viewport.GetComponent<RectMask2D>();
-            bool oldMask = mask.enabled;
-            Vector2[] oldPositions = new Vector2[_cards.Count];
-            for (int i = 0; i < _cards.Count; i++) oldPositions[i] = _cards[i].Rect.anchoredPosition;
-
-            _shade.color = new Color(0.92f, 0.89f, 0.82f, 1f);
-            _viewportImage.color = _shade.color;
-            _handleLayer.gameObject.SetActive(false);
-            for (int i = 0; i < _rowPanels.Count; i++)
-                _rowPanels[i].gameObject.SetActive(false);
-            mask.enabled = false;
-            _content.localScale = Vector3.one;
-            _content.anchoredPosition = Vector2.zero;
-            for (int i = 0; i < _cards.Count; i++) _cards[i].Group.alpha = 0f;
-            Canvas.ForceUpdateCanvases();
-
-            Vector3[] viewportCorners = new Vector3[4];
-            _viewport.GetWorldCorners(viewportCorners);
-            Vector2 viewport0 = RectTransformUtility.WorldToScreenPoint(null, viewportCorners[0]);
-            Vector2 viewport2 = RectTransformUtility.WorldToScreenPoint(null, viewportCorners[2]);
-            float scaleX = (viewport2.x - viewport0.x) / _viewportWidth;
-            float scaleY = (viewport2.y - viewport0.y) / _viewportHeight;
-            int outputWidth = Mathf.CeilToInt(_layoutWidth * scaleX);
-            int outputHeight = Mathf.CeilToInt(_layoutHeight * scaleY);
-            List<CardCapture> captures = new List<CardCapture>();
-            bool failed = outputWidth < 1 || outputHeight < 1 || outputWidth > 12000 ||
-                outputHeight > 100000 || (long)outputWidth * outputHeight > 200000000L;
-            if (failed) SetStatus(UiTextKey.ExportTooLarge);
-
-            for (int i = 0; i < _cards.Count && !failed; i++)
-            {
-                Card card = _cards[i];
-                card.Group.alpha = 1f;
-                card.Rect.anchoredPosition = new Vector2(40f - card.MinX, -40f - card.MaxY);
-                SetStatus(UiTextKey.RenderingCard, i + 1, _cards.Count);
-                yield return null;
-                Canvas.ForceUpdateCanvases();
-                yield return new WaitForEndOfFrame();
-                try
-                {
-                    captures.Add(CaptureCard(card, scaleX, scaleY));
-                }
-                catch (Exception exception)
-                {
-                    _logger.LogError("Could not capture original recipe card " + card.Recipe.Name + ": " + exception);
-                    SetStatus(UiTextKey.ExportFailed);
-                    failed = true;
-                }
-                card.Group.alpha = 0f;
-            }
-
+            if (!_ready || !Alive || _cards.Count == 0) return false;
+            long cacheBytes = 0;
             for (int i = 0; i < _cards.Count; i++)
             {
-                _cards[i].Rect.anchoredPosition = oldPositions[i];
-                _cards[i].Group.alpha = 1f;
+                Card card = _cards[i];
+                int cw = (int)Math.Ceiling(card.Width + 12f);
+                int ch = (int)Math.Ceiling(card.Height + 12f);
+                if (!RecipeCardRenderer.SafeCard(cw, ch)) return false;
+                cacheBytes += (long)cw * ch * 4;
             }
-            mask.enabled = oldMask;
-            _shade.color = oldShade;
-            _viewportImage.color = oldViewport;
-            _handleLayer.gameObject.SetActive(true);
-            for (int i = 0; i < _rowPanels.Count; i++)
-                _rowPanels[i].gameObject.SetActive(i < _rows.Count);
-            _content.localScale = oldContentScale;
-            _content.anchoredPosition = oldContentPosition;
-            Canvas.ForceUpdateCanvases();
-
-            if (!failed)
-            {
-                try
-                {
-                    SetStatus(UiTextKey.SavingPng);
-                    PngStreamWriter.Save(path, outputWidth, outputHeight,
-                        delegate(int y, byte[] row) { FillExportScanline(y, row, outputWidth, captures); });
-                    int clipboardWidth, clipboardHeight;
-                    Color32[] clipboard = BuildClipboardImage(
-                        captures, outputWidth, outputHeight, out clipboardWidth, out clipboardHeight);
-                    string clipboardError;
-                    bool copied = ClipboardImage.Copy(
-                        clipboard, clipboardWidth, clipboardHeight, out clipboardError);
-                    SetStatus(copied ? UiTextKey.PngCopied : UiTextKey.PngNoClipboard, path);
-                    _logger.LogInfo(Status + " (" + outputWidth + "x" + outputHeight + ")");
-                    if (!copied) _logger.LogWarning("Clipboard copy failed: " + clipboardError);
-                }
-                catch (Exception exception)
-                {
-                    SetStatus(UiTextKey.PngFailed);
-                    _logger.LogError("Recipe board export failed: " + exception);
-                }
-            }
-            _exporting = false;
+            return cacheBytes <= RecipeExport.MaxCacheBytes;
         }
 
-        private static CardCapture CaptureCard(Card card, float scaleX, float scaleY)
+        internal void GetExportBounds(out float left, out float top, out float right, out float bottom)
         {
-            const float pad = 6f;
-            Vector3 worldBottomLeft = card.Rect.TransformPoint(
-                new Vector3(card.MinX - pad, card.MinY - pad, 0f));
-            Vector3 worldTopRight = card.Rect.TransformPoint(
-                new Vector3(card.MaxX + pad, card.MaxY + pad, 0f));
-            Vector2 bottomLeft = RectTransformUtility.WorldToScreenPoint(null, worldBottomLeft);
-            Vector2 topRight = RectTransformUtility.WorldToScreenPoint(null, worldTopRight);
-            int screenX = Mathf.Clamp(Mathf.FloorToInt(bottomLeft.x), 0, Screen.width - 1);
-            int screenY = Mathf.Clamp(Mathf.FloorToInt(bottomLeft.y), 0, Screen.height - 1);
-            int width = Mathf.Clamp(Mathf.CeilToInt(topRight.x) - screenX, 1, Screen.width - screenX);
-            int height = Mathf.Clamp(Mathf.CeilToInt(topRight.y) - screenY, 1, Screen.height - screenY);
-            Texture2D texture = new Texture2D(width, height, TextureFormat.RGB24, false);
+            left = top = float.MaxValue;
+            right = bottom = float.MinValue;
+            for (int i = 0; i < _cards.Count; i++)
+            {
+                Card card = _cards[i];
+                left = Math.Min(left, card.LayoutX - 6f);
+                top = Math.Min(top, card.LayoutTop - 6f);
+                right = Math.Max(right, card.LayoutX + card.Width + 6f);
+                bottom = Math.Max(bottom, card.LayoutTop + card.Height + 6f);
+            }
+        }
+
+        internal IEnumerator CaptureExport(Action<RecipeExport> completed)
+        {
+            if (!_ready || _exporting || Dragging || !Alive) { completed(null); yield break; }
+            UiTextKey previousStatus = _statusKey;
+            object[] previousValues = _statusValues;
+            _exporting = true;
+            RecipeExport result = null;
             try
             {
-                RenderTexture prior = RenderTexture.active;
-                try
-                {
-                    RenderTexture.active = null;
-                    texture.ReadPixels(new Rect(screenX, screenY, width, height), 0, 0, false);
-                    texture.Apply(false);
-                }
-                finally { RenderTexture.active = prior; }
-                CardCapture capture = new CardCapture();
-                capture.Left = Mathf.RoundToInt((card.LayoutX - pad) * scaleX);
-                capture.Top = Mathf.RoundToInt((card.LayoutTop - pad) * scaleY);
-                capture.Width = width;
-                capture.Height = height;
-                capture.Pixels = texture.GetPixels32();
-                return capture;
-            }
-            finally { UnityEngine.Object.Destroy(texture); }
-        }
-
-        private static void FillExportScanline(
-            int y, byte[] scanline, int outputWidth, List<CardCapture> captures)
-        {
-            scanline[0] = 0;
-            for (int x = 0; x < outputWidth; x++)
-            {
-                int at = 1 + x * 3;
-                scanline[at] = 235;
-                scanline[at + 1] = 227;
-                scanline[at + 2] = 209;
-            }
-            for (int i = 0; i < captures.Count; i++)
-            {
-                CardCapture card = captures[i];
-                int localTop = y - card.Top;
-                if (localTop < 0 || localTop >= card.Height) continue;
-                int sourceRow = card.Height - 1 - localTop;
-                for (int x = 0; x < card.Width; x++)
-                {
-                    int targetX = card.Left + x;
-                    if (targetX < 0 || targetX >= outputWidth) continue;
-                    Color32 color = card.Pixels[sourceRow * card.Width + x];
-                    int at = 1 + targetX * 3;
-                    scanline[at] = color.r;
-                    scanline[at + 1] = color.g;
-                    scanline[at + 2] = color.b;
-                }
-            }
-        }
-
-        private static Color32[] BuildClipboardImage(List<CardCapture> captures,
-            int fullWidth, int fullHeight, out int width, out int height)
-        {
-            float scale = Math.Min(1f, Math.Min(4096f / fullWidth, 4096f / fullHeight));
-            double scaledPixels = (double)fullWidth * fullHeight * scale * scale;
-            if (scaledPixels > 12000000.0)
-                scale *= (float)Math.Sqrt(12000000.0 / scaledPixels);
-            width = Math.Max(1, Mathf.RoundToInt(fullWidth * scale));
-            height = Math.Max(1, Mathf.RoundToInt(fullHeight * scale));
-            Color32[] result = new Color32[width * height];
-            Color32 paper = new Color32(235, 227, 209, 255);
-            for (int i = 0; i < result.Length; i++) result[i] = paper;
-
-            for (int i = 0; i < captures.Count; i++)
-            {
-                CardCapture card = captures[i];
-                int left = Math.Max(0, Mathf.FloorToInt(card.Left * scale));
-                int top = Math.Max(0, Mathf.FloorToInt(card.Top * scale));
-                int right = Math.Min(width, Mathf.CeilToInt((card.Left + card.Width) * scale));
-                int bottom = Math.Min(height, Mathf.CeilToInt((card.Top + card.Height) * scale));
-                for (int y = top; y < bottom; y++)
-                {
-                    int sourceTop = Mathf.Clamp(Mathf.FloorToInt(y / scale) - card.Top, 0, card.Height - 1);
-                    int sourceY = card.Height - 1 - sourceTop;
-                    int targetY = height - 1 - y;
-                    for (int x = left; x < right; x++)
+                float left, top, right, bottom;
+                GetExportBounds(out left, out top, out right, out bottom);
+                if (!CanCaptureExport()) { SetStatus(UiTextKey.ExportTooLarge); yield break; }
+                result = new RecipeExport();
+                List<Card> readingOrder = new List<Card>();
+                List<int> exportRows = new List<int>();
+                for (int r = 0; r < _rows.Count; r++)
+                    for (int c = 0; c < _rows[r].Count; c++)
                     {
-                        int sourceX = Mathf.Clamp(Mathf.FloorToInt(x / scale) - card.Left, 0, card.Width - 1);
-                        result[targetY * width + x] = card.Pixels[sourceY * card.Width + sourceX];
+                        readingOrder.Add(_rows[r][c]); exportRows.Add(r);
+                    }
+                if (readingOrder.Count != _cards.Count)
+                    throw new InvalidOperationException("Incomplete viewer rows; export cancelled to avoid missing recipes.");
+                using (RecipeCardRenderer renderer = new RecipeCardRenderer())
+                {
+                    for (int i = 0; i < readingOrder.Count; i++)
+                    {
+                        if (!Alive) yield break;
+                        SetStatus(UiTextKey.RenderingCard, i + 1, readingOrder.Count);
+                        Card card = readingOrder[i];
+                        int w = (int)Math.Ceiling(card.Width + 12f);
+                        int h = (int)Math.Ceiling(card.Height + 12f);
+                        byte[] pixels = renderer.Capture(card.Rect, card.MinX, card.MaxY, w, h, 6f);
+                        int x = (int)Math.Round(card.LayoutX - 6f - left);
+                        int y = (int)Math.Round(card.LayoutTop - 6f - top);
+                        result.Add(x, y, w, h, pixels, exportRows[i]);
+                        yield return null;
                     }
                 }
+                RecipeExport ready = result;
+                result = null; // Ownership transfers to the preview.
+                completed(ready);
             }
-            return result;
+            finally
+            {
+                if (result != null) result.Dispose();
+                _exporting = false;
+                SetStatus(previousStatus, previousValues);
+            }
         }
-
         internal void Destroy()
         {
             if (_root != null) UnityEngine.Object.Destroy(_root);

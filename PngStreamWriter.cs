@@ -13,48 +13,114 @@ namespace Overcooked2RecipeViewer
 
         internal static void Save(string path, int width, int height, Action<int, byte[]> fillScanline)
         {
-            if (width < 1 || height < 1) throw new ArgumentOutOfRangeException("width");
-            byte[] row = new byte[checked(width * 3 + 1)];
-            uint adlerA = 1, adlerB = 0;
-            MemoryStream compressed = new MemoryStream();
-            using (DeflateStream deflater = new DeflateStream(compressed, CompressionMode.Compress, true))
+            string directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+            bool created = false;
+            try
             {
-                for (int y = 0; y < height; y++)
+                using (FileStream file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read))
                 {
-                    row[0] = 0; // PNG filter type: None.
-                    fillScanline(y, row);
-                    deflater.Write(row, 0, row.Length);
-                    for (int i = 0; i < row.Length; i++)
+                    created = true;
+                    using (Encoder encoder = new Encoder(file, width, height))
                     {
-                        adlerA = (adlerA + row[i]) % 65521;
-                        adlerB = (adlerB + adlerA) % 65521;
+                        byte[] row = new byte[checked(width * 4 + 1)];
+                        for (int y = 0; y < height; y++) { fillScanline(y, row); encoder.WriteRow(row); }
+                        encoder.Finish();
                     }
                 }
             }
+            catch { if (created && File.Exists(path)) File.Delete(path); throw; }
+        }
 
-            byte[] rawDeflate = compressed.ToArray();
-            byte[] zlib = new byte[checked(rawDeflate.Length + 6)];
-            zlib[0] = 0x78;
-            zlib[1] = 0x9C;
-            Buffer.BlockCopy(rawDeflate, 0, zlib, 2, rawDeflate.Length);
-            WriteBigEndian(zlib, zlib.Length - 4, (adlerB << 16) | adlerA);
-
-            Directory.CreateDirectory(Path.GetDirectoryName(path));
-            using (FileStream file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read))
-            using (BinaryWriter writer = new BinaryWriter(file))
+        internal sealed class Encoder : IDisposable
+        {
+            private readonly BinaryWriter _writer;
+            private readonly IdatStream _chunks;
+            private readonly DeflateStream _deflater;
+            private readonly int _rowLength, _height;
+            private int _rows;
+            private uint _adlerA = 1, _adlerB;
+            private bool _finished, _disposed;
+            internal Encoder(Stream output, int width, int height)
             {
-                writer.Write(Signature);
+                if (width < 1 || height < 1) throw new ArgumentOutOfRangeException("width");
+                _rowLength = checked(width * 4 + 1); _height = height;
+                _writer = new BinaryWriter(output);
+                _writer.Write(Signature);
                 byte[] header = new byte[13];
-                WriteBigEndian(header, 0, (uint)width);
-                WriteBigEndian(header, 4, (uint)height);
-                header[8] = 8; // 8-bit RGB.
-                header[9] = 2;
-                WriteChunk(writer, "IHDR", header);
-                WriteChunk(writer, "IDAT", zlib);
-                WriteChunk(writer, "IEND", new byte[0]);
+                WriteBigEndian(header, 0, (uint)width); WriteBigEndian(header, 4, (uint)height);
+                header[8] = 8; header[9] = 6; // RGBA, straight alpha.
+                WriteChunk(_writer, "IHDR", header);
+                WriteChunk(_writer, "sRGB", new byte[] { 0 });
+                _chunks = new IdatStream(_writer);
+                _chunks.Write(new byte[] { 0x78, 0x9C }, 0, 2);
+                _deflater = new DeflateStream(_chunks, CompressionMode.Compress, true);
+            }
+            internal void WriteRow(byte[] row)
+            {
+                if (_disposed || _finished || _rows >= _height || row.Length != _rowLength)
+                    throw new InvalidOperationException("Invalid PNG scanline.");
+                row[0] = 0;
+                _deflater.Write(row, 0, row.Length);
+                for (int i = 0; i < row.Length; i++)
+                {
+                    _adlerA = (_adlerA + row[i]) % 65521;
+                    _adlerB = (_adlerB + _adlerA) % 65521;
+                }
+                _rows++;
+            }
+            internal void Finish()
+            {
+                if (_disposed || _finished || _rows != _height) throw new InvalidOperationException("Incomplete PNG.");
+                _deflater.Dispose();
+                byte[] checksum = new byte[4];
+                WriteBigEndian(checksum, 0, (_adlerB << 16) | _adlerA);
+                _chunks.Write(checksum, 0, 4); _chunks.Flush();
+                WriteChunk(_writer, "IEND", new byte[0]); _writer.Flush();
+                _finished = true;
+            }
+            public void Dispose()
+            {
+                if (_disposed) return;
+                _disposed = true;
+                if (!_finished) _deflater.Dispose();
+                // The caller owns the output stream.
             }
         }
 
+        // Bounded IDAT chunks; no full-image or compressed-image MemoryStream.
+        private sealed class IdatStream : Stream
+        {
+            private readonly BinaryWriter _writer;
+            private readonly byte[] _buffer = new byte[65536];
+            private int _used;
+            internal IdatStream(BinaryWriter writer) { _writer = writer; }
+            public override void Write(byte[] buffer, int offset, int count)
+            {
+                while (count > 0)
+                {
+                    int n = Math.Min(count, _buffer.Length - _used);
+                    Buffer.BlockCopy(buffer, offset, _buffer, _used, n);
+                    _used += n; offset += n; count -= n;
+                    if (_used == _buffer.Length) Flush();
+                }
+            }
+            public override void Flush()
+            {
+                if (_used == 0) return;
+                byte[] data = new byte[_used];
+                Buffer.BlockCopy(_buffer, 0, data, 0, _used);
+                WriteChunk(_writer, "IDAT", data); _used = 0;
+            }
+            public override bool CanRead { get { return false; } }
+            public override bool CanSeek { get { return false; } }
+            public override bool CanWrite { get { return true; } }
+            public override long Length { get { throw new NotSupportedException(); } }
+            public override long Position { get { throw new NotSupportedException(); } set { throw new NotSupportedException(); } }
+            public override int Read(byte[] b, int o, int c) { throw new NotSupportedException(); }
+            public override long Seek(long o, SeekOrigin s) { throw new NotSupportedException(); }
+            public override void SetLength(long v) { throw new NotSupportedException(); }
+        }
         private static void WriteChunk(BinaryWriter writer, string name, byte[] data)
         {
             byte[] type = System.Text.Encoding.ASCII.GetBytes(name);

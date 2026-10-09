@@ -1,16 +1,17 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
-using UnityEngine;
 
 namespace Overcooked2RecipeViewer
 {
-    // Windows clipboard CF_DIB; the exported pixels are already opaque and
-    // arranged bottom-up, matching a positive-height BITMAPINFOHEADER.
+    // PNG + CF_DIBV5 preserve alpha where supported. CF_DIB supplies an opaque
+    // white-matte fallback for older applications. All inputs are bottom-up RGBA.
     internal static class ClipboardImage
     {
         private const uint CfDib = 8;
+        private const uint CfDibV5 = 17;
         private const uint GmemMoveable = 0x0002;
 
         [DllImport("user32.dll")]
@@ -31,6 +32,9 @@ namespace Overcooked2RecipeViewer
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool CloseClipboard();
 
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint RegisterClipboardFormat(string name);
+
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern IntPtr GlobalAlloc(uint flags, UIntPtr bytes);
 
@@ -43,49 +47,32 @@ namespace Overcooked2RecipeViewer
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern IntPtr GlobalFree(IntPtr handle);
 
-        internal static bool Copy(Color32[] pixels, int width, int height, out string error)
+        internal static bool Copy(byte[] pixels, int width, int height, out string error)
         {
             error = string.Empty;
-            if (pixels == null || width < 1 || height < 1 || pixels.Length != width * height)
+            if (pixels == null || width < 1 || height < 1 || pixels.Length != (long)width * height * 4)
             {
                 error = "Invalid bitmap dimensions.";
                 return false;
             }
 
-            IntPtr memory = IntPtr.Zero;
             try
             {
-                int pixelBytes = checked(width * height * 4);
-                byte[] dib = new byte[checked(40 + pixelBytes)];
-                WriteInt(dib, 0, 40);                  // BITMAPINFOHEADER size
-                WriteInt(dib, 4, width);
-                WriteInt(dib, 8, height);              // positive = bottom-up
-                dib[12] = 1;                          // planes
-                dib[14] = 32;                         // bits per pixel
-                WriteInt(dib, 20, pixelBytes);
-                for (int i = 0; i < pixels.Length; i++)
+                byte[] png;
+                using (MemoryStream stream = new MemoryStream())
                 {
-                    int at = 40 + i * 4;
-                    dib[at] = pixels[i].b;
-                    dib[at + 1] = pixels[i].g;
-                    dib[at + 2] = pixels[i].r;
-                    dib[at + 3] = 255;
+                    using (PngStreamWriter.Encoder encoder = new PngStreamWriter.Encoder(stream, width, height))
+                    {
+                        byte[] row = new byte[checked(width * 4 + 1)];
+                        for (int y = 0; y < height; y++)
+                        {
+                            Buffer.BlockCopy(pixels, (height - 1 - y) * width * 4, row, 1, width * 4);
+                            encoder.WriteRow(row);
+                        }
+                        encoder.Finish();
+                    }
+                    png = stream.ToArray();
                 }
-
-                memory = GlobalAlloc(GmemMoveable, new UIntPtr((uint)dib.Length));
-                if (memory == IntPtr.Zero)
-                {
-                    error = "GlobalAlloc failed: " + Marshal.GetLastWin32Error();
-                    return false;
-                }
-                IntPtr pointer = GlobalLock(memory);
-                if (pointer == IntPtr.Zero)
-                {
-                    error = "GlobalLock failed: " + Marshal.GetLastWin32Error();
-                    return false;
-                }
-                try { Marshal.Copy(dib, 0, pointer, dib.Length); }
-                finally { GlobalUnlock(memory); }
 
                 IntPtr owner = GetActiveWindow();
                 if (owner == IntPtr.Zero) owner = Process.GetCurrentProcess().MainWindowHandle;
@@ -114,13 +101,12 @@ namespace Overcooked2RecipeViewer
                         error = "EmptyClipboard failed: " + Marshal.GetLastWin32Error();
                         return false;
                     }
-                    if (SetClipboardData(CfDib, memory) == IntPtr.Zero)
-                    {
-                        error = "SetClipboardData failed: " + Marshal.GetLastWin32Error();
-                        return false;
-                    }
-                    memory = IntPtr.Zero; // Windows owns it after SetClipboardData.
-                    return true;
+                    uint pngFormat = RegisterClipboardFormat("PNG");
+                    bool alpha = pngFormat != 0 && Publish(pngFormat, png);
+                    alpha = Publish(CfDibV5, BuildDib(pixels, width, height, true)) || alpha;
+                    bool fallback = Publish(CfDib, BuildDib(pixels, width, height, false));
+                    if (!alpha || !fallback) error = "Some clipboard formats unavailable: " + Marshal.GetLastWin32Error();
+                    return alpha && fallback;
                 }
                 finally
                 {
@@ -132,10 +118,49 @@ namespace Overcooked2RecipeViewer
                 error = exception.Message;
                 return false;
             }
-            finally
+        }
+
+        private static bool Publish(uint format, byte[] bytes)
+        {
+            IntPtr memory = GlobalAlloc(GmemMoveable, new UIntPtr((uint)bytes.Length));
+            if (memory == IntPtr.Zero) return false;
+            try
             {
-                if (memory != IntPtr.Zero) GlobalFree(memory);
+                IntPtr pointer = GlobalLock(memory);
+                if (pointer == IntPtr.Zero) return false;
+                try { Marshal.Copy(bytes, 0, pointer, bytes.Length); }
+                finally { GlobalUnlock(memory); }
+                if (SetClipboardData(format, memory) == IntPtr.Zero) return false;
+                memory = IntPtr.Zero; // Windows owns successful publications.
+                return true;
             }
+            finally { if (memory != IntPtr.Zero) GlobalFree(memory); }
+        }
+
+        internal static byte[] BuildDib(byte[] pixels, int width, int height, bool alpha)
+        {
+            int header = alpha ? 124 : 40;
+            byte[] dib = new byte[checked(header + width * height * 4)];
+            WriteInt(dib, 0, header); WriteInt(dib, 4, width); WriteInt(dib, 8, height);
+            dib[12] = 1; dib[14] = 32; WriteInt(dib, 20, pixels.Length);
+            if (alpha)
+            {
+                WriteInt(dib, 16, 3); // BI_BITFIELDS, RGBA masks + sRGB.
+                WriteInt(dib, 40, 0x00FF0000); WriteInt(dib, 44, 0x0000FF00);
+                WriteInt(dib, 48, 0x000000FF); WriteInt(dib, 52, unchecked((int)0xFF000000));
+                WriteInt(dib, 56, 0x73524742); WriteInt(dib, 108, 4);
+            }
+            for (int i = 0; i < pixels.Length; i += 4)
+            {
+                int a = pixels[i + 3];
+                for (int c = 0; c < 3; c++)
+                {
+                    byte channel = pixels[i + 2 - c];
+                    dib[header + i + c] = alpha ? channel : (byte)((channel * a + 255 * (255 - a) + 127) / 255);
+                }
+                dib[header + i + 3] = alpha ? (byte)a : (byte)255;
+            }
+            return dib;
         }
 
         private static void WriteInt(byte[] bytes, int offset, int value)

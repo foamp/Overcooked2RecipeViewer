@@ -12,7 +12,14 @@ namespace Overcooked2RecipeViewer
         DeletedLayout, DeleteFailed, SessionOnly, AutoSaveFailed, PresetApplied,
         SortFailed, Grouped, Zoom, Rendering, ExportTooLarge, RenderingCard,
         ExportFailed, SavingPng, PngCopied, PngNoClipboard, PngFailed,
-        ShortcutCategory, ShortcutName, ShortcutDescription
+        ShortcutCategory, ShortcutName, ShortcutDescription,
+        ExportPreview, ExportResolution, Background, DefaultBackground, TransparentBackground,
+        WhiteBackground, DarkBackground, CustomBackground, ExportLayout, ExportMargins,
+        NoMargin, CompactMargin, StandardMargin, WideMargin, CopyImage, Cancel,
+        FitPreview, PreviewZoom, PreviewZoomShort, PreviewReady, PreviewUpdating, PreviewCapturing,
+        SavingPngProgress, PngSaved, ImageCopied, ImageCopiedReduced, ClipboardFailed, ExportSettingsFailed,
+        InterfaceSettings, InterfaceScale, InterfaceTheme, KitchenTheme, CreamTheme,
+        OceanTheme, CharcoalTheme, InterfaceSettingsFailed, ResetInterface
     }
 
     internal static class RecipeUiText
@@ -81,6 +88,43 @@ namespace Overcooked2RecipeViewer
             switch (key)
             {
                 case UiTextKey.None: return string.Empty;
+                case UiTextKey.ExportPreview: format = Pair("Image export preview", "图片导出预览"); break;
+                case UiTextKey.ExportResolution: format = "{0} × {1} px"; break;
+                case UiTextKey.Background: format = Pair("Background", "背景"); break;
+                case UiTextKey.DefaultBackground: format = Pair("Default", "原版默认"); break;
+                case UiTextKey.TransparentBackground: format = Pair("Transparent", "透明"); break;
+                case UiTextKey.WhiteBackground: format = Pair("White", "纯白"); break;
+                case UiTextKey.DarkBackground: format = Pair("Dark", "深色"); break;
+                case UiTextKey.CustomBackground: format = Pair("Custom color", "自定义颜色"); break;
+                case UiTextKey.ExportLayout: format = Pair("Image layout", "图片排版"); break;
+                case UiTextKey.ExportMargins: format = Pair("Margins", "边距"); break;
+                case UiTextKey.NoMargin: format = Pair("None", "无边距"); break;
+                case UiTextKey.CompactMargin: format = Pair("Compact", "紧凑"); break;
+                case UiTextKey.StandardMargin: format = Pair("Standard", "标准"); break;
+                case UiTextKey.WideMargin: format = Pair("Wide", "宽松"); break;
+                case UiTextKey.CopyImage: format = Pair("Copy image", "复制到剪贴板"); break;
+                case UiTextKey.Cancel: format = Pair("Cancel", "取消"); break;
+                case UiTextKey.FitPreview: format = Pair("Fit", "适应"); break;
+                case UiTextKey.PreviewZoom: format = Pair("View: {0}% · Ctrl + wheel", "查看：{0}% · Ctrl + 滚轮"); break;
+                case UiTextKey.PreviewZoomShort: format = Pair("View: {0}%", "查看：{0}%"); break;
+                case UiTextKey.InterfaceSettings: format = Pair("Interface", "界面设置"); break;
+                case UiTextKey.InterfaceScale: format = Pair("Interface scale", "界面缩放"); break;
+                case UiTextKey.InterfaceTheme: format = Pair("Color theme", "界面配色"); break;
+                case UiTextKey.KitchenTheme: format = Pair("Kitchen", "厨房绿"); break;
+                case UiTextKey.CreamTheme: format = Pair("Cream", "奶油白"); break;
+                case UiTextKey.OceanTheme: format = Pair("Ocean", "深海蓝"); break;
+                case UiTextKey.CharcoalTheme: format = Pair("Charcoal", "炭灰"); break;
+                case UiTextKey.InterfaceSettingsFailed: format = Pair("Could not save interface settings; see log.", "界面设置保存失败，请查看日志。"); break;
+                case UiTextKey.ResetInterface: format = Pair("Reset", "恢复默认"); break;
+                case UiTextKey.PreviewReady: format = Pair("Ready to export. PNG preserves the full resolution.", "预览已更新，可以导出完整分辨率 PNG。"); break;
+                case UiTextKey.PreviewUpdating: format = Pair("Updating preview...", "正在更新预览……"); break;
+                case UiTextKey.PreviewCapturing: format = "{0}"; break;
+                case UiTextKey.SavingPngProgress: format = Pair("Saving full PNG: {0}%", "正在保存完整 PNG：{0}%"); break;
+                case UiTextKey.PngSaved: format = Pair("PNG saved: {0}", "PNG 已保存：{0}"); break;
+                case UiTextKey.ImageCopied: format = Pair("Image copied: {0} × {1} px", "已复制图片：{0} × {1} px"); break;
+                case UiTextKey.ImageCopiedReduced: format = Pair("Copied at {0} × {1} px for clipboard safety. Export image for full resolution.", "已复制 {0} × {1} px 缩略图；完整分辨率请导出图片。"); break;
+                case UiTextKey.ClipboardFailed: format = Pair("Clipboard copy failed; see BepInEx log.", "剪贴板复制失败，请查看 BepInEx 日志。"); break;
+                case UiTextKey.ExportSettingsFailed: format = Pair("Could not save export settings; see BepInEx log.", "无法保存导出设置，请查看 BepInEx 日志。"); break;
                 case UiTextKey.Heading: format = Pair("Recipes: {0}   |   Zoom: {1}%   |   Ctrl + wheel: zoom",
                     "菜谱：{0}   |   缩放：{1}%   |   Ctrl + 滚轮：缩放"); break;
                 case UiTextKey.PresetButton: format = Pair("Preset: {0}  ▼", "排序预设：{0}  ▼"); break;
@@ -93,7 +137,7 @@ namespace Overcooked2RecipeViewer
                 case UiTextKey.CustomLastEdit: format = Pair("Custom (last edit)", "自定义（上次编辑）"); break;
                 case UiTextKey.SavedName: format = Pair("Saved {0}", "已保存布局 {0}"); break;
                 case UiTextKey.SaveLayout: format = Pair("Save layout", "保存布局"); break;
-                case UiTextKey.SavePng: format = Pair("Save PNG", "导出 PNG"); break;
+                case UiTextKey.SavePng: format = Pair("Export image", "导出图片"); break;
                 case UiTextKey.OpenPngFolder: format = Pair("Open PNG folder", "打开图片目录"); break;
                 case UiTextKey.Close: format = Pair("Close", "关闭"); break;
                 case UiTextKey.DeleteTooltip: format = Pair("Delete saved layout", "删除此保存布局"); break;
@@ -163,12 +207,4 @@ namespace Overcooked2RecipeViewer
         }
     }
 
-    // Configuration Manager reads these optional display labels by reflection.
-    // Config section/key identities stay unchanged for existing users.
-    internal sealed class ConfigurationManagerAttributes
-    {
-        public string DispName;
-        public string Category;
-        public string Description;
-    }
 }

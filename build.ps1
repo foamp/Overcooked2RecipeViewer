@@ -17,13 +17,19 @@ if (-not (Test-Path -LiteralPath $CompilerPath -PathType Leaf)) {
 }
 
 $sources = @(
+    'AssemblyInfo.cs',
     'RecipeViewerPlugin.cs',
     'RecipeBoard.cs',
+    'RecipeExport.cs',
+    'RecipeCardRenderer.cs',
+    'RecipeExportPreview.cs',
     'ClipboardImage.cs',
     'PngStreamWriter.cs',
     'RecipeSortMetadata.cs',
     'RecipeLayoutStore.cs',
-    'RecipeUiText.cs'
+    'RecipeUiText.cs',
+    'RecipeUiSettings.cs',
+    'RecipeUiAppearance.cs'
 ) | ForEach-Object { Join-Path $PSScriptRoot $_ }
 $outputDirectory = Join-Path $PSScriptRoot 'artifacts'
 $output = Join-Path $outputDirectory 'Overcooked2RecipeViewer.dll'
